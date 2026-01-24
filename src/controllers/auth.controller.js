@@ -7,6 +7,7 @@ import {
   setTokenCookies,
   clearTokenCookies,
 } from '../utils/jwt.js';
+import { revokeGitHubAuthorization } from '../services/github.service.js';
 
 export const register = async (req, res, next) => {
   try {
@@ -89,9 +90,21 @@ export const login = async (req, res, next) => {
 
 export const logout = async (req, res, next) => {
   try {
-    // Clear refresh token in database
     if (req.user) {
-      await User.findByIdAndUpdate(req.user._id, { refreshToken: null });
+      // Get user with GitHub data
+      const user = await User.findById(req.user._id);
+
+      // If user has GitHub connected, revoke the authorization
+      if (user?.github?.accessToken) {
+        await revokeGitHubAuthorization(user.github.accessToken);
+        // Clear GitHub data so next user can connect their own
+        user.github = undefined;
+        user.favorites = [];
+      }
+
+      // Clear refresh token
+      user.refreshToken = null;
+      await user.save({ validateBeforeSave: false });
     }
 
     // Clear cookies
