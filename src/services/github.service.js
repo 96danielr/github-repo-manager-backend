@@ -98,3 +98,59 @@ export const getRepository = async (accessToken, owner, repo) => {
 
   return response.data;
 };
+
+export const getRepositoryReadme = async (accessToken, owner, repo) => {
+  try {
+    // Get README content
+    const response = await axios.get(`${GITHUB_API}/repos/${owner}/${repo}/readme`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/vnd.github.html+json',
+      },
+    });
+
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 404) {
+      return null; // No README found
+    }
+    throw error;
+  }
+};
+
+export const getRepositoryCommits = async (accessToken, owner, repo, options = {}) => {
+  const { perPage = 10 } = options;
+
+  const response = await axios.get(`${GITHUB_API}/repos/${owner}/${repo}/commits`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    params: {
+      per_page: perPage,
+    },
+  });
+
+  return response.data;
+};
+
+export const getRepositoryContributors = async (accessToken, owner, repo, options = {}) => {
+  const { perPage = 20 } = options;
+
+  try {
+    const response = await axios.get(`${GITHUB_API}/repos/${owner}/${repo}/contributors`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      params: {
+        per_page: perPage,
+      },
+    });
+
+    return response.data;
+  } catch (error) {
+    if (error.response?.status === 204) {
+      return []; // No contributors (empty repo)
+    }
+    throw error;
+  }
+};

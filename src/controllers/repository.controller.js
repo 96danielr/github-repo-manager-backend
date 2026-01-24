@@ -3,6 +3,9 @@ import {
   getGitHubUserRepos,
   searchGitHubRepos,
   getRepository,
+  getRepositoryReadme,
+  getRepositoryCommits,
+  getRepositoryContributors,
 } from '../services/github.service.js';
 
 export const getRepositories = async (req, res, next) => {
@@ -107,6 +110,94 @@ export const getRepositoryDetails = async (req, res, next) => {
           ...repository,
           isFavorite,
         },
+      },
+    });
+  } catch (error) {
+    if (error.response?.status === 404) {
+      return next(new AppError('Repository not found', 404));
+    }
+    if (error.response?.status === 401) {
+      return next(new AppError('GitHub token expired, please reconnect', 401));
+    }
+    next(error);
+  }
+};
+
+export const getRepoReadme = async (req, res, next) => {
+  try {
+    const { owner, repo } = req.params;
+
+    const readme = await getRepositoryReadme(
+      req.user.github.accessToken,
+      owner,
+      repo
+    );
+
+    res.json({
+      success: true,
+      data: {
+        content: readme,
+      },
+    });
+  } catch (error) {
+    if (error.response?.status === 404) {
+      return res.json({
+        success: true,
+        data: { content: null },
+      });
+    }
+    if (error.response?.status === 401) {
+      return next(new AppError('GitHub token expired, please reconnect', 401));
+    }
+    next(error);
+  }
+};
+
+export const getRepoCommits = async (req, res, next) => {
+  try {
+    const { owner, repo } = req.params;
+    const { perPage = 10 } = req.query;
+
+    const commits = await getRepositoryCommits(
+      req.user.github.accessToken,
+      owner,
+      repo,
+      { perPage: parseInt(perPage, 10) }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        commits,
+      },
+    });
+  } catch (error) {
+    if (error.response?.status === 404) {
+      return next(new AppError('Repository not found', 404));
+    }
+    if (error.response?.status === 401) {
+      return next(new AppError('GitHub token expired, please reconnect', 401));
+    }
+    next(error);
+  }
+};
+
+export const getRepoContributors = async (req, res, next) => {
+  try {
+    const { owner, repo } = req.params;
+    const { perPage = 20 } = req.query;
+
+    const contributors = await getRepositoryContributors(
+      req.user.github.accessToken,
+      owner,
+      repo,
+      { perPage: parseInt(perPage, 10) }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        contributors,
       },
     });
   } catch (error) {
