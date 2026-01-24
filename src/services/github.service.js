@@ -8,19 +8,24 @@ export const getGitHubAuthUrl = () => {
     client_id: process.env.GITHUB_CLIENT_ID,
     redirect_uri: process.env.GITHUB_CALLBACK_URL,
     scope: 'read:user user:email repo',
-    // Force fresh authorization by adding timestamp
-    // This helps avoid cached authorizations
     state: Date.now().toString(),
+    // Force GitHub to show login screen instead of auto-authorizing
+    // This prevents using cached browser sessions
+    prompt: 'consent',
+    login: '', // Empty login forces account selection
   });
 
   return `${GITHUB_OAUTH}/authorize?${params.toString()}`;
 };
 
-// Revoke GitHub OAuth token (call when user disconnects)
-export const revokeGitHubToken = async (accessToken) => {
+// Revoke GitHub OAuth APP AUTHORIZATION (not just the token)
+// This forces the user to re-authorize the app next time
+export const revokeGitHubAuthorization = async (accessToken) => {
   try {
+    // This deletes the ENTIRE app authorization, not just the token
+    // User will need to re-authorize the app from scratch
     await axios.delete(
-      `https://api.github.com/applications/${process.env.GITHUB_CLIENT_ID}/token`,
+      `https://api.github.com/applications/${process.env.GITHUB_CLIENT_ID}/grant`,
       {
         auth: {
           username: process.env.GITHUB_CLIENT_ID,
@@ -31,11 +36,29 @@ export const revokeGitHubToken = async (accessToken) => {
         },
       }
     );
+    console.log('GitHub app authorization revoked successfully');
     return true;
   } catch (error) {
-    // Token might already be revoked or invalid
-    console.error('Failed to revoke GitHub token:', error.message);
-    return false;
+    console.error('Failed to revoke GitHub authorization:', error.message);
+    // Try revoking just the token as fallback
+    try {
+      await axios.delete(
+        `https://api.github.com/applications/${process.env.GITHUB_CLIENT_ID}/token`,
+        {
+          auth: {
+            username: process.env.GITHUB_CLIENT_ID,
+            password: process.env.GITHUB_CLIENT_SECRET,
+          },
+          data: {
+            access_token: accessToken,
+          },
+        }
+      );
+      return true;
+    } catch (tokenError) {
+      console.error('Failed to revoke token:', tokenError.message);
+      return false;
+    }
   }
 };
 

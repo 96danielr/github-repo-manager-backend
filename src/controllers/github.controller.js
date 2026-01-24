@@ -4,7 +4,7 @@ import {
   getGitHubAuthUrl,
   exchangeCodeForToken,
   getGitHubUser,
-  revokeGitHubToken,
+  revokeGitHubAuthorization,
 } from '../services/github.service.js';
 import {
   generateAccessToken,
@@ -104,10 +104,10 @@ export const disconnectGitHub = async (req, res, next) => {
       return next(new AppError('GitHub account not connected', 400));
     }
 
-    // Revoke the GitHub OAuth token to force re-authorization next time
-    // This ensures the user must re-authenticate with GitHub
+    // Revoke the GitHub OAuth APP AUTHORIZATION (not just token)
+    // This forces complete re-authorization with GitHub next time
     if (req.user.github.accessToken) {
-      await revokeGitHubToken(req.user.github.accessToken);
+      await revokeGitHubAuthorization(req.user.github.accessToken);
     }
 
     req.user.github = undefined;
