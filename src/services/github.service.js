@@ -8,9 +8,35 @@ export const getGitHubAuthUrl = () => {
     client_id: process.env.GITHUB_CLIENT_ID,
     redirect_uri: process.env.GITHUB_CALLBACK_URL,
     scope: 'read:user user:email repo',
+    // Force fresh authorization by adding timestamp
+    // This helps avoid cached authorizations
+    state: Date.now().toString(),
   });
 
   return `${GITHUB_OAUTH}/authorize?${params.toString()}`;
+};
+
+// Revoke GitHub OAuth token (call when user disconnects)
+export const revokeGitHubToken = async (accessToken) => {
+  try {
+    await axios.delete(
+      `https://api.github.com/applications/${process.env.GITHUB_CLIENT_ID}/token`,
+      {
+        auth: {
+          username: process.env.GITHUB_CLIENT_ID,
+          password: process.env.GITHUB_CLIENT_SECRET,
+        },
+        data: {
+          access_token: accessToken,
+        },
+      }
+    );
+    return true;
+  } catch (error) {
+    // Token might already be revoked or invalid
+    console.error('Failed to revoke GitHub token:', error.message);
+    return false;
+  }
 };
 
 export const exchangeCodeForToken = async (code) => {
