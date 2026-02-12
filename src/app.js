@@ -6,8 +6,8 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 
 import authRoutes from './routes/auth.routes.js';
-import repositoryRoutes from './routes/repository.routes.js';
-import favoriteRoutes from './routes/favorite.routes.js';
+import categoryRoutes from './routes/category.routes.js';
+import transactionRoutes from './routes/transaction.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
@@ -23,20 +23,20 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Rate limiting - relaxed for demo/testing purposes
+// Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Allow many requests for testing
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   message: { success: false, message: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 app.use(limiter);
 
-// Auth endpoints rate limiting - relaxed for demo/testing
+// Auth endpoints rate limiting
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500, // Allow many auth attempts for testing
+  max: 500,
   message: { success: false, message: 'Too many authentication attempts, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -61,8 +61,8 @@ app.get('/health', (req, res) => {
 
 // Routes
 app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/repositories', repositoryRoutes);
-app.use('/api/favorites', favoriteRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/transactions', transactionRoutes);
 
 // 404 handler
 app.use((req, res) => {

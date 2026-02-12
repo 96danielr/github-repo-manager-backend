@@ -38,10 +38,3 @@ export const protect = async (req, res, next) => {
     return next(new AppError('Not authorized, invalid token', 401));
   }
 };
-
-export const requireGitHub = (req, res, next) => {
-  if (!req.user.github?.accessToken) {
-    return next(new AppError('GitHub account not connected', 400));
-  }
-  next();
-};

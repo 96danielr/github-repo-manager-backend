@@ -7,7 +7,7 @@ import {
   setTokenCookies,
   clearTokenCookies,
 } from '../utils/jwt.js';
-import { revokeGitHubAuthorization } from '../services/github.service.js';
+import { seedDefaultCategories } from '../utils/seedCategories.js';
 
 export const register = async (req, res, next) => {
   try {
@@ -25,6 +25,9 @@ export const register = async (req, res, next) => {
       email,
       password,
     });
+
+    // Seed default finance categories for the new user
+    await seedDefaultCategories(user._id);
 
     // Generate tokens
     const accessToken = generateAccessToken(user._id);
@@ -91,18 +94,7 @@ export const login = async (req, res, next) => {
 export const logout = async (req, res, next) => {
   try {
     if (req.user) {
-      // Get user with GitHub data
       const user = await User.findById(req.user._id);
-
-      // If user has GitHub connected, revoke the authorization
-      if (user?.github?.accessToken) {
-        await revokeGitHubAuthorization(user.github.accessToken);
-        // Clear GitHub data so next user can connect their own
-        user.github = undefined;
-        user.favorites = [];
-      }
-
-      // Clear refresh token
       user.refreshToken = null;
       await user.save({ validateBeforeSave: false });
     }

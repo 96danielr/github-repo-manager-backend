@@ -1,7 +1,7 @@
 {
-  "name": "login-api",
+  "name": "mis-finanzas-api",
   "version": "1.0.0",
-  "description": "Authentication API with GitHub OAuth",
+  "description": "Personal Finance Manager API",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -13,14 +13,13 @@
   },
   "keywords": [
     "api",
-    "authentication",
-    "github",
-    "oauth"
+    "finance",
+    "personal-finance",
+    "budgeting"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "axios": "^1.6.7",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
