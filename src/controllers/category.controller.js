@@ -2,6 +2,7 @@ import Category from '../models/Category.js';
 import Transaction from '../models/Transaction.js';
 import AppError from '../utils/AppError.js';
 
+// Get all categories
 export const getCategories = async (req, res, next) => {
   try {
     const filter = { user: req.user._id, isActive: true };
