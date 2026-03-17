@@ -8,6 +8,10 @@ import rateLimit from 'express-rate-limit';
 import authRoutes from './routes/auth.routes.js';
 import categoryRoutes from './routes/category.routes.js';
 import transactionRoutes from './routes/transaction.routes.js';
+import importRoutes from './routes/import.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
+import clientRoutes from './routes/client.routes.js';
+import lotRoutes from './routes/lot.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
@@ -63,6 +67,10 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/import', importRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/clients', clientRoutes);
+app.use('/api/lots', lotRoutes);
 
 // 404 handler
 app.use((req, res) => {

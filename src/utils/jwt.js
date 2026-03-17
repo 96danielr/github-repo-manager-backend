@@ -32,14 +32,14 @@ export const setTokenCookies = (res, accessToken, refreshToken) => {
     httpOnly: true,
     secure: cookieSecure,
     sameSite: isProduction ? 'strict' : 'lax',
-    maxAge: 15 * 60 * 1000, // 15 minutes
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   });
 
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: cookieSecure,
     sameSite: isProduction ? 'strict' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     path: '/api/auth/refresh',
   });
 };
