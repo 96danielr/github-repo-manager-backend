@@ -1,0 +1,237 @@
+import UserAccount from '../models/UserAccount.js';
+import User from '../models/User.js';
+import UserCompany from '../models/UserCompany.js';
+import AppError from '../utils/AppError.js';
+
+/**
+ * Get all users (memberships) within the current tenant.
+ * Only tenant_admin can access.
+ */
+export const getAllUsers = async (req, res, next) => {
+  try {
+    const { id: tenantId } = req.tenant;
+
+    const memberships = await User.find({ tenantId })
+      .populate('accountId', 'email fullName status lastLogin')
+      .sort({ createdAt: -1 });
+
+    const users = memberships.map((m) => ({
+      id: m._id,
+      accountId: m.accountId._id,
+      email: m.accountId.email,
+      fullName: m.accountId.fullName,
+      role: m.role,
+      status: m.status,
+      accountStatus: m.accountId.status,
+      lastLogin: m.accountId.lastLogin,
+      createdAt: m.createdAt,
+    }));
+
+    res.json({
+      success: true,
+      data: { users },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Invite / create a new user within the current tenant.
+ * If email already has a UserAccount → only create the membership.
+ * If not → create UserAccount + User.
+ */
+export const createUser = async (req, res, next) => {
+  try {
+    const { fullName, email, password, role, companyIds } = req.body;
+    const { id: tenantId } = req.tenant;
+
+    const validRoles = ['tenant_admin', 'company_admin', 'agent'];
+    if (!validRoles.includes(role)) {
+      return next(new AppError(`Invalid role. Must be one of: ${validRoles.join(', ')}`, 400));
+    }
+
+    // Check if a membership already exists in this tenant for this email
+    let account = await UserAccount.findOne({ email });
+
+    if (account) {
+      // Check if membership already exists
+      const existingMembership = await User.findOne({
+        accountId: account._id,
+        tenantId,
+      });
+
+      if (existingMembership) {
+        return next(new AppError('This email already has a membership in this team', 400));
+      }
+    } else {
+      // Create new UserAccount
+      if (!password || password.length < 8) {
+        return next(new AppError('Password is required and must be at least 8 characters', 400));
+      }
+
+      account = await UserAccount.create({
+        email,
+        passwordHash: password,
+        fullName,
+      });
+    }
+
+    // Create membership
+    const membership = await User.create({
+      accountId: account._id,
+      tenantId,
+      role,
+    });
+
+    // Assign companies if provided
+    if (companyIds && companyIds.length > 0 && role !== 'tenant_admin') {
+      const companyRole = role; // company_admin or agent
+      const assignments = companyIds.map((companyId) => ({
+        userId: membership._id,
+        companyId,
+        tenantId,
+        role: companyRole,
+      }));
+
+      await UserCompany.insertMany(assignments);
+    }
+
+    res.status(201).json({
+      success: true,
+      data: {
+        user: {
+          id: membership._id,
+          accountId: account._id,
+          email: account.email,
+          fullName: account.fullName,
+          role: membership.role,
+          status: membership.status,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update a user's membership (role, status).
+ */
+export const updateUser = async (req, res, next) => {
+  try {
+    const { role, status, fullName } = req.body;
+    const membershipId = req.params.id;
+    const { id: tenantId } = req.tenant;
+
+    const membership = await User.findOne({
+      _id: membershipId,
+      tenantId,
+    }).populate('accountId');
+
+    if (!membership) {
+      return next(new AppError('User not found in this team', 404));
+    }
+
+    if (role) membership.role = role;
+    if (status) membership.status = status;
+    await membership.save();
+
+    // Update fullName on the account if provided
+    if (fullName && membership.accountId) {
+      membership.accountId.fullName = fullName;
+      await membership.accountId.save({ validateBeforeSave: false });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: membership._id,
+          email: membership.accountId.email,
+          fullName: membership.accountId.fullName,
+          role: membership.role,
+          status: membership.status,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Change a user's password (by tenant_admin).
+ */
+export const changeUserPassword = async (req, res, next) => {
+  try {
+    const { password } = req.body;
+    const membershipId = req.params.id;
+    const { id: tenantId } = req.tenant;
+
+    if (!password || password.length < 8) {
+      return next(new AppError('Password must be at least 8 characters', 400));
+    }
+
+    const membership = await User.findOne({
+      _id: membershipId,
+      tenantId,
+    });
+
+    if (!membership) {
+      return next(new AppError('User not found in this team', 404));
+    }
+
+    const account = await UserAccount.findById(membership.accountId);
+    if (!account) {
+      return next(new AppError('User account not found', 404));
+    }
+
+    account.passwordHash = password;
+    await account.save();
+
+    res.json({
+      success: true,
+      message: 'Password updated successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Remove a user's membership from this tenant.
+ */
+export const deleteUser = async (req, res, next) => {
+  try {
+    const membershipId = req.params.id;
+    const { id: tenantId } = req.tenant;
+
+    // Prevent deleting yourself
+    if (membershipId === req.tenant.userId.toString()) {
+      return next(new AppError('You cannot remove your own membership', 400));
+    }
+
+    const membership = await User.findOne({
+      _id: membershipId,
+      tenantId,
+    });
+
+    if (!membership) {
+      return next(new AppError('User not found in this team', 404));
+    }
+
+    // Remove company assignments
+    await UserCompany.deleteMany({ userId: membership._id, tenantId });
+
+    // Remove membership
+    await User.findByIdAndDelete(membership._id);
+
+    res.json({
+      success: true,
+      message: 'User removed from team successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
