@@ -1,62 +1,41 @@
 import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
 
+/**
+ * User = membership within a tenant.
+ * A single UserAccount can have multiple User records (one per tenant).
+ */
 const userSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Name is required'],
-    trim: true,
-    minlength: [2, 'Name must be at least 2 characters'],
-    maxlength: [50, 'Name cannot exceed 50 characters'],
+  accountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'UserAccount',
+    required: [true, 'Account reference is required'],
   },
-  email: {
-    type: String,
-    required: [true, 'Email is required'],
-    unique: true,
-    lowercase: true,
-    trim: true,
-    match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email'],
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: [true, 'Tenant reference is required'],
   },
-  password: {
+  role: {
     type: String,
-    required: [true, 'Password is required'],
-    minlength: [8, 'Password must be at least 8 characters'],
-    select: false,
+    enum: ['superadmin', 'tenant_admin', 'company_admin', 'agent'],
+    required: [true, 'Role is required'],
   },
-  refreshToken: {
+  status: {
     type: String,
-    select: false,
-  },
-  lastLogin: Date,
-  isActive: {
-    type: Boolean,
-    default: true,
+    enum: ['active', 'inactive'],
+    default: 'active',
   },
 }, {
   timestamps: true,
 });
 
-// Hash password before saving
-userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) {
-    return next();
-  }
+// A single account can only have one membership per tenant
+userSchema.index({ accountId: 1, tenantId: 1 }, { unique: true });
+userSchema.index({ accountId: 1 });
+userSchema.index({ tenantId: 1 });
 
-  const salt = await bcrypt.genSalt(12);
-  this.password = await bcrypt.hash(this.password, salt);
-  next();
-});
-
-// Compare password method
-userSchema.methods.comparePassword = async function(candidatePassword) {
-  return bcrypt.compare(candidatePassword, this.password);
-};
-
-// Remove sensitive data from JSON
-userSchema.methods.toJSON = function() {
+userSchema.methods.toJSON = function () {
   const obj = this.toObject();
-  delete obj.password;
-  delete obj.refreshToken;
   delete obj.__v;
   return obj;
 };

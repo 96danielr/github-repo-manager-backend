@@ -1,6 +1,12 @@
 import mongoose from 'mongoose';
 
 const categorySchema = new mongoose.Schema({
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: [true, 'Tenant is required'],
+    index: true,
+  },
   name: {
     type: String,
     required: [true, 'Category name is required'],
@@ -23,11 +29,6 @@ const categorySchema = new mongoose.Schema({
     type: String,
     default: '#8b949e',
   },
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: [true, 'Category must belong to a user'],
-  },
   isDefault: {
     type: Boolean,
     default: false,
@@ -40,10 +41,10 @@ const categorySchema = new mongoose.Schema({
   timestamps: true,
 });
 
-categorySchema.index({ user: 1, type: 1 });
-categorySchema.index({ user: 1, name: 1, type: 1 }, { unique: true });
+categorySchema.index({ tenantId: 1, type: 1 });
+categorySchema.index({ tenantId: 1, name: 1, type: 1 }, { unique: true });
 
-categorySchema.methods.toJSON = function() {
+categorySchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.__v;
   return obj;

@@ -10,81 +10,97 @@ const seedTestData = async () => {
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('Connected to MongoDB');
 
-    // Drop old indexes on the 'users' collection that may conflict
-    // (e.g., the old email_1 unique index from the previous User schema)
-    try {
-      const usersCollection = mongoose.connection.collection('users');
-      const indexes = await usersCollection.indexes();
-      const hasOldEmailIndex = indexes.some((idx) => idx.key && idx.key.email);
-      if (hasOldEmailIndex) {
-        await usersCollection.dropIndex('email_1');
-        console.log('⚠️  Dropped old email_1 index from users collection');
-      }
-    } catch (err) {
-      // Index may not exist, that's fine
-      if (err.code !== 27) {
-        console.log('Note: Could not drop old index (may not exist):', err.message);
-      }
-    }
+    // 0. Clean database
+    await Promise.all([
+      UserAccount.deleteMany({}),
+      User.deleteMany({}),
+      Tenant.deleteMany({}),
+      Company.deleteMany({}),
+    ]);
+    console.log('✅ Database cleaned');
 
-    // Sync indexes for the new User model
+    // Sync indexes
     await User.syncIndexes();
-    console.log('✅ User indexes synced');
+    await UserAccount.syncIndexes();
 
-    // 1. Create Tenant
-    const tenant = await Tenant.create({
+    // 1. Create a "Platform" / "System" Tenant for the Superadmin
+    const systemTenant = await Tenant.create({
+      name: 'System Platform',
+      plan: 'enterprise',
+      status: 'active',
+    });
+    console.log(`✅ System Tenant created: ${systemTenant.name}`);
+
+    // 2. Create Superadmin UserAccount
+    const superadminAccount = await UserAccount.create({
+      email: 'superadmin@cobra.com',
+      passwordHash: '12345678', // This will be hashed by pre-save
+      fullName: 'Super Administrador',
+      role: 'superadmin',
+    });
+    console.log(`✅ Superadmin account created: ${superadminAccount.email}`);
+
+    // Create Superadmin membership in System Tenant
+    await User.create({
+      accountId: superadminAccount._id,
+      tenantId: systemTenant._id,
+      role: 'superadmin',
+    });
+    console.log(`✅ Superadmin membership assigned to ${systemTenant.name}`);
+
+    // 3. Create a Business Tenant (The user's enterprise)
+    const alicanteTenant = await Tenant.create({
       name: 'Alicante Cobranza',
       plan: 'premium',
       status: 'active',
     });
-    console.log(`✅ Tenant created: ${tenant.name} (${tenant._id})`);
+    console.log(`✅ Business Tenant created: ${alicanteTenant.name}`);
 
-    // 2. Create a default Company
-    const company = await Company.create({
-      tenantId: tenant._id,
-      name: 'Alfasur',
+    // 4. Create a Company within that tenant
+    const alfasurCompany = await Company.create({
+      tenantId: alicanteTenant._id,
+      name: 'Alfasur S.A.',
     });
-    console.log(`✅ Company created: ${company.name} (${company._id})`);
+    console.log(`✅ Company created: ${alfasurCompany.name}`);
 
-    // 3. Create tenant_admin account
+    // 5. Create a Tenant Admin for Alicante
     const adminAccount = await UserAccount.create({
       email: 'admin@cobra.com',
-      passwordHash: 'password123',
-      fullName: 'Admin Principal',
+      passwordHash: '12345678',
+      fullName: 'Administrador Alicante',
     });
     console.log(`✅ Admin account created: ${adminAccount.email}`);
 
     const adminMembership = await User.create({
       accountId: adminAccount._id,
-      tenantId: tenant._id,
+      tenantId: alicanteTenant._id,
       role: 'tenant_admin',
     });
-    console.log(`✅ Admin membership created with role: ${adminMembership.role}`);
+    console.log(`✅ Admin membership assigned to ${alicanteTenant.name}`);
 
-    // 4. Create an agent account
+    // 6. Create an Agent for Alicante
     const agentAccount = await UserAccount.create({
       email: 'agente@cobra.com',
-      passwordHash: 'password123',
-      fullName: 'Agente de Prueba',
+      passwordHash: '12345678',
+      fullName: 'Agente Javier',
     });
     console.log(`✅ Agent account created: ${agentAccount.email}`);
 
-    const agentMembership = await User.create({
+    await User.create({
       accountId: agentAccount._id,
-      tenantId: tenant._id,
+      tenantId: alicanteTenant._id,
       role: 'agent',
     });
-    console.log(`✅ Agent membership created with role: ${agentMembership.role}`);
+    console.log(`✅ Agent membership assigned to ${alicanteTenant.name}`);
 
-    console.log('\n--- Test Data Summary ---');
-    console.log(`Tenant: ${tenant.name}`);
-    console.log(`Company: ${company.name}`);
-    console.log('Tenant Admin: admin@cobra.com / password123');
-    console.log('Agent: agente@cobra.com / password123');
-    console.log('------------------------\n');
+    console.log('\n--- Credentials for Testing ---');
+    console.log('Superadmin (Platform):   superadmin@cobra.com / 12345678');
+    console.log('Tenant Admin (Alicante): admin@cobra.com / 12345678');
+    console.log('Agent (Alicante):        agente@cobra.com / 12345678');
+    console.log('-------------------------------\n');
 
     await mongoose.disconnect();
-    console.log('Done!');
+    console.log('Seed finished successfully!');
     process.exit(0);
   } catch (error) {
     console.error('Seed error:', error.message);

@@ -12,6 +12,9 @@ import importRoutes from './routes/import.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import clientRoutes from './routes/client.routes.js';
 import lotRoutes from './routes/lot.routes.js';
+import adminRoutes from './routes/admin.routes.js';
+import companyRoutes from './routes/company.routes.js';
+import tenantRoutes from './routes/tenant.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 
 const app = express();
@@ -71,6 +74,9 @@ app.use('/api/import', importRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/lots', lotRoutes);
+app.use('/api/admin-users', adminRoutes);
+app.use('/api/companies', companyRoutes);
+app.use('/api/tenants', tenantRoutes);
 
 // 404 handler
 app.use((req, res) => {

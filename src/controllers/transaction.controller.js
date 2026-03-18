@@ -5,7 +5,7 @@ import AppError from '../utils/AppError.js';
 export const getTransactions = async (req, res, next) => {
   try {
     const { type, category, from, to, page = 1, limit = 20 } = req.query;
-    const filter = { user: req.user._id };
+    const filter = { tenantId: req.user.tenantId };
 
     if (type) filter.type = type;
     if (category) filter.category = category;
@@ -48,7 +48,7 @@ export const getTransaction = async (req, res, next) => {
   try {
     const transaction = await Transaction.findOne({
       _id: req.params.id,
-      user: req.user._id,
+      tenantId: req.user.tenantId,
     }).populate('category', 'name type icon color');
 
     if (!transaction) {
@@ -71,7 +71,7 @@ export const createTransaction = async (req, res, next) => {
     // Verify category belongs to user and matches type
     const categoryDoc = await Category.findOne({
       _id: category,
-      user: req.user._id,
+      tenantId: req.user.tenantId,
       isActive: true,
     });
 
@@ -93,7 +93,8 @@ export const createTransaction = async (req, res, next) => {
       category,
       date: date || new Date(),
       notes,
-      user: req.user._id,
+      tenantId: req.user.tenantId,
+      userId: req.user.userId,
     });
 
     const populated = await transaction.populate('category', 'name type icon color');
@@ -111,7 +112,7 @@ export const updateTransaction = async (req, res, next) => {
   try {
     const transaction = await Transaction.findOne({
       _id: req.params.id,
-      user: req.user._id,
+      tenantId: req.user.tenantId,
     });
 
     if (!transaction) {
@@ -123,7 +124,7 @@ export const updateTransaction = async (req, res, next) => {
     if (category) {
       const categoryDoc = await Category.findOne({
         _id: category,
-        user: req.user._id,
+        tenantId: req.user.tenantId,
         isActive: true,
       });
       if (!categoryDoc) {
@@ -158,7 +159,7 @@ export const deleteTransaction = async (req, res, next) => {
   try {
     const transaction = await Transaction.findOneAndDelete({
       _id: req.params.id,
-      user: req.user._id,
+      tenantId: req.user.tenantId,
     });
 
     if (!transaction) {
@@ -187,7 +188,7 @@ export const getSummary = async (req, res, next) => {
       Transaction.aggregate([
         {
           $match: {
-            user: req.user._id,
+            tenantId: req.user.tenantId,
             date: { $gte: startDate, $lte: endDate },
           },
         },
@@ -216,7 +217,7 @@ export const getSummary = async (req, res, next) => {
         { $sort: { total: -1 } },
       ]),
       Transaction.find({
-        user: req.user._id,
+        tenantId: req.user.tenantId,
         date: { $gte: startDate, $lte: endDate },
       })
         .populate('category', 'name type icon color')

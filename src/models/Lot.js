@@ -1,22 +1,36 @@
 import mongoose from 'mongoose';
 
 const lotSchema = new mongoose.Schema({
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true,
+  },
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: true,
+    index: true,
+  },
   stage: {
     type: String,
-    trim: true
-  }, // Stage of the lot example 'ETAPA 1'
+    trim: true,
+  },
   nomenclature: {
     type: String,
-    trim: true
-  }, // Nomenclature of the lot example '42'
+    trim: true,
+  },
   lotNumber: {
     type: String,
-    trim: true
-  }, // Lot number example '275-2'
+    trim: true,
+  },
   area: {
-    type: Number
-  }, // Area of the lot example '120' on m2
+    type: Number,
+  },
   excelRowId: Number,
 }, { timestamps: true });
+
+lotSchema.index({ tenantId: 1, companyId: 1 });
 
 export default mongoose.model('Lot', lotSchema);

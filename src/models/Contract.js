@@ -1,24 +1,36 @@
 import mongoose from 'mongoose';
 
 const contractSchema = new mongoose.Schema({
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true,
+  },
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: true,
+    index: true,
+  },
   client: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'Client', 
-    required: true 
-  }, // Client ID (Reference to Client model)
+    required: true,
+  },
   lot: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'Lot', 
-    required: true 
-  }, // Lot ID (Reference to Lot model)
-  contractDate: Date, // Contract Date format iso ISO 8601
+    required: true,
+  },
+  contractDate: Date,
   negotiation: String, 
-  appendix: String, // Otro si
-  totalValue: Number, // Total value of the contract
-  installmentsCount: Number, // Number of installments
-  installmentValue: Number, // Value of each installment
-  paymentDay: Number, // Payment day of the month
-  startDate: Date, // Start date of the contract
+  appendix: String,
+  totalValue: Number,
+  installmentsCount: Number,
+  installmentValue: Number,
+  paymentDay: Number,
+  startDate: Date,
   bonus: String,
   bonusValue: Number,
   commercial: String,
@@ -28,5 +40,7 @@ const contractSchema = new mongoose.Schema({
   observations: String,
   excelRowId: Number,
 }, { timestamps: true });
+
+contractSchema.index({ tenantId: 1, companyId: 1 });
 
 export default mongoose.model('Contract', contractSchema);

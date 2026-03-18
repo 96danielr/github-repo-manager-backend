@@ -5,7 +5,7 @@ import AppError from '../utils/AppError.js';
 // Get all categories
 export const getCategories = async (req, res, next) => {
   try {
-    const filter = { user: req.user._id, isActive: true };
+    const filter = { tenantId: req.user.tenantId, isActive: true };
     if (req.query.type) {
       filter.type = req.query.type;
     }
@@ -33,7 +33,7 @@ export const createCategory = async (req, res, next) => {
       type,
       icon,
       color,
-      user: req.user._id,
+      tenantId: req.user.tenantId,
     });
 
     res.status(201).json({
@@ -49,7 +49,7 @@ export const updateCategory = async (req, res, next) => {
   try {
     const category = await Category.findOne({
       _id: req.params.id,
-      user: req.user._id,
+      tenantId: req.user.tenantId,
     });
 
     if (!category) {
@@ -77,7 +77,7 @@ export const deleteCategory = async (req, res, next) => {
   try {
     const category = await Category.findOne({
       _id: req.params.id,
-      user: req.user._id,
+      tenantId: req.user.tenantId,
     });
 
     if (!category) {
@@ -86,7 +86,7 @@ export const deleteCategory = async (req, res, next) => {
 
     const transactionCount = await Transaction.countDocuments({
       category: category._id,
-      user: req.user._id,
+      tenantId: req.user.tenantId,
     });
 
     if (transactionCount > 0) {

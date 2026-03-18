@@ -1,7 +1,11 @@
 import AppError from '../utils/AppError.js';
 import { verifyAccessToken } from '../utils/jwt.js';
-import User from '../models/User.js';
+import UserAccount from '../models/UserAccount.js';
 
+/**
+ * Protect middleware — verifies JWT and injects req.user.
+ * req.user = { accountId, userId, tenantId, role, companies }
+ */
 export const protect = async (req, res, next) => {
   try {
     let token;
@@ -17,24 +21,45 @@ export const protect = async (req, res, next) => {
       return next(new AppError('Not authorized, please log in', 401));
     }
 
-    // Verify token
+    // Verify token — payload has { accountId, userId, tenantId, role, companies }
     const decoded = verifyAccessToken(token);
 
-    // Check if user still exists
-    const user = await User.findById(decoded.id);
-
-    if (!user) {
-      return next(new AppError('User no longer exists', 401));
+    // Verify the account still exists and is active
+    const account = await UserAccount.findById(decoded.accountId);
+    if (!account) {
+      return next(new AppError('User account no longer exists', 401));
     }
-
-    if (!user.isActive) {
+    if (account.status !== 'active') {
       return next(new AppError('User account is deactivated', 401));
     }
 
-    // Attach user to request
-    req.user = user;
+    // Attach decoded token data to request
+    req.user = {
+      accountId: decoded.accountId,
+      userId: decoded.userId,
+      tenantId: decoded.tenantId,
+      role: decoded.role,
+      companies: decoded.companies || [],
+      fullName: account.fullName,
+      email: account.email,
+    };
+
     next();
   } catch (error) {
     return next(new AppError('Not authorized, invalid token', 401));
   }
+};
+
+/**
+ * Restrict to specific roles within the tenant.
+ */
+export const restrictTo = (...roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return next(
+        new AppError('You do not have permission to perform this action', 403)
+      );
+    }
+    next();
+  };
 };

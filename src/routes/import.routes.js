@@ -1,7 +1,9 @@
 import express from 'express';
 import multer from 'multer';
-import { importExcel, exportExcel } from '../controllers/import.controller.js';
+import { importExcel, exportExcel, downloadTemplate } from '../controllers/import.controller.js';
 import { protect } from '../middleware/auth.js';
+import { tenantMiddleware } from '../middleware/tenant.js';
+import { companyMiddleware } from '../middleware/company.js';
 
 const router = express.Router();
 
@@ -25,10 +27,13 @@ const upload = multer({
   },
 });
 
-// Route for Excel import
-router.post('/excel', protect, upload.single('file'), importExcel);
+// Route for Excel import (requires company context)
+router.post('/excel', protect, tenantMiddleware, upload.single('file'), companyMiddleware, importExcel);
 
-// Route for Excel export
-router.get('/export', protect, exportExcel);
+// Route for Excel export (requires company context)
+router.get('/export', protect, tenantMiddleware, companyMiddleware, exportExcel);
+
+// Route for Excel template download (public)
+router.get('/template', downloadTemplate);
 
 export default router;

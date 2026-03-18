@@ -1,97 +1,121 @@
 import Lot from '../models/Lot.js';
-import { catchAsync } from '../utils/catchAsync.js';
 
-export const createLot = catchAsync(async (req, res) => {
-  const lot = await Lot.create(req.body);
+export const createLot = async (req, res, next) => {
+  try {
+    const { id: tenantId, companyId } = req.tenant;
 
-  res.status(201).json({
-    success: true,
-    data: lot
-  });
-});
+    const lot = await Lot.create({
+      ...req.body,
+      tenantId,
+      companyId,
+    });
 
-export const getLots = catchAsync(async (req, res) => {
-  const { page = 1, limit = 10, search } = req.query;
-  const skip = (page - 1) * limit;
+    res.status(201).json({
+      success: true,
+      data: lot,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
-  let query = {};
-  if (search) {
-    query = {
-      $or: [
+export const getLots = async (req, res, next) => {
+  try {
+    const { id: tenantId, companyId } = req.tenant;
+    const { page = 1, limit = 10, search } = req.query;
+    const skip = (page - 1) * limit;
+
+    let query = { tenantId, companyId };
+    if (search) {
+      query.$or = [
         { stage: { $regex: search, $options: 'i' } },
         { nomenclature: { $regex: search, $options: 'i' } },
-        { lotNumber: { $regex: search, $options: 'i' } }
-      ]
-    };
-  }
-
-  const total = await Lot.countDocuments(query);
-  const lots = await Lot.find(query)
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(parseInt(limit));
-
-  res.status(200).json({
-    success: true,
-    data: {
-      lots,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / limit)
-      }
+        { lotNumber: { $regex: search, $options: 'i' } },
+      ];
     }
-  });
-});
 
-export const getLot = catchAsync(async (req, res) => {
-  const lot = await Lot.findById(req.params.id);
+    const total = await Lot.countDocuments(query);
+    const lots = await Lot.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
 
-  if (!lot) {
-    return res.status(404).json({
-      success: false,
-      message: 'Lote no encontrado'
+    res.status(200).json({
+      success: true,
+      data: {
+        lots,
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          pages: Math.ceil(total / limit),
+        },
+      },
     });
+  } catch (error) {
+    next(error);
   }
+};
 
-  res.status(200).json({
-    success: true,
-    data: lot
-  });
-});
+export const getLot = async (req, res, next) => {
+  try {
+    const lot = await Lot.findById(req.params.id);
 
-export const updateLot = catchAsync(async (req, res) => {
-  const lot = await Lot.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true
-  });
+    if (!lot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lote no encontrado',
+      });
+    }
 
-  if (!lot) {
-    return res.status(404).json({
-      success: false,
-      message: 'Lote no encontrado'
+    res.status(200).json({
+      success: true,
+      data: lot,
     });
+  } catch (error) {
+    next(error);
   }
+};
 
-  res.status(200).json({
-    success: true,
-    data: lot
-  });
-});
-
-export const deleteLot = catchAsync(async (req, res) => {
-  const lot = await Lot.findByIdAndDelete(req.params.id);
-
-  if (!lot) {
-    return res.status(404).json({
-      success: false,
-      message: 'Lote no encontrado'
+export const updateLot = async (req, res, next) => {
+  try {
+    const lot = await Lot.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
     });
-  }
 
-  res.status(200).json({
-    success: true,
-    message: 'Lote eliminado correctamente'
-  });
-});
+    if (!lot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lote no encontrado',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: lot,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteLot = async (req, res, next) => {
+  try {
+    const lot = await Lot.findByIdAndDelete(req.params.id);
+
+    if (!lot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lote no encontrado',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Lote eliminado correctamente',
+    });
+  } catch (error) {
+    next(error);
+  }
+};

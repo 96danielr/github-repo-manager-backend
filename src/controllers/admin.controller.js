@@ -10,12 +10,36 @@ import AppError from '../utils/AppError.js';
 export const getAllUsers = async (req, res, next) => {
   try {
     const { id: tenantId } = req.tenant;
+    const { page = 1, limit = 10, search } = req.query;
+    
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
 
-    const memberships = await User.find({ tenantId })
-      .populate('accountId', 'email fullName status lastLogin')
+    // Filter by tenant
+    const query = { tenantId };
+
+    // Find memberships and populate account
+    let memberships = await User.find(query)
+      .populate({
+        path: 'accountId',
+        select: 'email fullName status lastLogin',
+        match: search ? {
+          $or: [
+            { email: { $regex: search, $options: 'i' } },
+            { fullName: { $regex: search, $options: 'i' } },
+          ],
+        } : {},
+      })
       .sort({ createdAt: -1 });
 
-    const users = memberships.map((m) => ({
+    // Filter out memberships where account wasn't found (due to search mismatch)
+    memberships = memberships.filter(m => m.accountId !== null);
+
+    const total = memberships.length;
+    const paginatedMemberships = memberships.slice(skip, skip + limitNum);
+
+    const users = paginatedMemberships.map((m) => ({
       id: m._id,
       accountId: m.accountId._id,
       email: m.accountId.email,
@@ -29,7 +53,15 @@ export const getAllUsers = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: { users },
+      data: { 
+        users,
+        pagination: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          pages: Math.ceil(total / limitNum),
+        }
+      },
     });
   } catch (error) {
     next(error);

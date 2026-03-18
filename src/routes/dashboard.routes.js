@@ -1,24 +1,36 @@
 import express from 'express';
 import Client from '../models/Client.js';
 import Contract from '../models/Contract.js';
+import User from '../models/User.js';
 import { protect } from '../middleware/auth.js';
+import { tenantMiddleware } from '../middleware/tenant.js';
+import { companyMiddleware } from '../middleware/company.js';
 
 const router = express.Router();
 
-router.get('/summary', protect, async (req, res) => {
+router.use(protect);
+router.use(tenantMiddleware);
+
+// Dashboard summary — company-scoped
+router.get('/summary', companyMiddleware, async (req, res) => {
   try {
-    // Get total clients count
-    const totalClientsCount = await Client.countDocuments();
-    
-    // Get portfolio total
+    const { id: tenantId, companyId } = req.tenant;
+
+    const totalClientsCount = await Client.countDocuments({ tenantId, companyId });
+
     const portfolioTotal = await Contract.aggregate([
+      { $match: { tenantId, companyId } },
       { $group: { _id: null, total: { $sum: '$totalValue' } } },
     ]);
+
+    // Count team members in this tenant (for tenant_admin dashboard)
+    const teamMembersCount = await User.countDocuments({ tenantId, status: 'active' });
 
     res.json({
       success: true,
       data: {
         totalClients: totalClientsCount,
+        teamMembers: teamMembersCount,
         cartera: {
           valorTotalCartera: portfolioTotal[0]?.total || 0,
           totalRecaudado: 0,

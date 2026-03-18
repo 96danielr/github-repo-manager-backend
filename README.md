@@ -29,34 +29,34 @@ RESTful API for the GitHub Repo Manager application. Handles authentication, Git
 
 ### Authentication
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/register` | Register new user |
-| POST | `/api/auth/login` | Login user |
-| POST | `/api/auth/logout` | Logout user |
-| GET | `/api/auth/me` | Get current user |
-| POST | `/api/auth/refresh` | Refresh access token |
+| Method | Endpoint             | Description          |
+| ------ | -------------------- | -------------------- |
+| POST   | `/api/auth/register` | Register new user    |
+| POST   | `/api/auth/login`    | Login user           |
+| POST   | `/api/auth/logout`   | Logout user          |
+| GET    | `/api/auth/me`       | Get current user     |
+| POST   | `/api/auth/refresh`  | Refresh access token |
 
 ### GitHub
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/github/auth-url` | Get GitHub OAuth URL |
-| GET | `/api/github/callback` | OAuth callback handler |
-| GET | `/api/github/status` | Check GitHub connection |
-| POST | `/api/github/disconnect` | Disconnect GitHub account |
-| GET | `/api/github/repos` | Get user repositories |
-| GET | `/api/github/repos/:owner/:repo` | Get repository details |
-| GET | `/api/github/repos/:owner/:repo/readme` | Get repository README |
-| GET | `/api/github/repos/:owner/:repo/commits` | Get repository commits |
-| GET | `/api/github/repos/:owner/:repo/contributors` | Get contributors |
+| Method | Endpoint                                      | Description               |
+| ------ | --------------------------------------------- | ------------------------- |
+| GET    | `/api/github/auth-url`                        | Get GitHub OAuth URL      |
+| GET    | `/api/github/callback`                        | OAuth callback handler    |
+| GET    | `/api/github/status`                          | Check GitHub connection   |
+| POST   | `/api/github/disconnect`                      | Disconnect GitHub account |
+| GET    | `/api/github/repos`                           | Get user repositories     |
+| GET    | `/api/github/repos/:owner/:repo`              | Get repository details    |
+| GET    | `/api/github/repos/:owner/:repo/readme`       | Get repository README     |
+| GET    | `/api/github/repos/:owner/:repo/commits`      | Get repository commits    |
+| GET    | `/api/github/repos/:owner/:repo/contributors` | Get contributors          |
 
 ### Favorites
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/favorites` | Get user favorites |
-| POST | `/api/favorites/:repoId` | Add to favorites |
+| Method | Endpoint                 | Description           |
+| ------ | ------------------------ | --------------------- |
+| GET    | `/api/favorites`         | Get user favorites    |
+| POST   | `/api/favorites/:repoId` | Add to favorites      |
 | DELETE | `/api/favorites/:repoId` | Remove from favorites |
 
 ## Getting Started
@@ -77,22 +77,26 @@ RESTful API for the GitHub Repo Manager application. Handles authentication, Git
 ### Installation
 
 1. Clone the repository
+
 ```bash
 git clone https://github.com/96danielr/github-repo-manager-backend.git
 cd github-repo-manager-backend
 ```
 
 2. Install dependencies
+
 ```bash
 npm install
 ```
 
 3. Configure environment variables
+
 ```bash
 cp .env.example .env
 ```
 
 Edit `.env` with your credentials:
+
 ```env
 PORT=5000
 NODE_ENV=development
@@ -116,11 +120,29 @@ FRONTEND_URL=http://localhost:5173
 ```
 
 4. Start development server
+
 ```bash
 npm run dev
 ```
 
 The API will be available at `http://localhost:5000`
+
+### Database Seeding (Opcional)
+
+Para inicializar rápidamente el sistema con datos de prueba multi-tenant, puedes ejecutar el siguiente comando:
+
+```bash
+npm run seed:test-users
+```
+
+Este script creará los siguientes datos:
+
+- **Tenant**: `Alicante Cobranza` (plan: premium)
+- **Company**: `Alfasur`
+- **Tenant Admin**: `admin@cobra.com` / `password123` (rol: tenant_admin)
+- **Agent**: `agente@cobra.com` / `password123` (rol: agent)
+
+> **⚠️ Importante:** Este script es para desarrollo/pruebas. No ejecutar en producción. Ejecutar solo una vez para evitar duplicados.
 
 ## Project Structure
 
@@ -137,19 +159,19 @@ src/
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `PORT` | Server port (default: 5000) |
-| `NODE_ENV` | Environment (development/production) |
-| `MONGODB_URI` | MongoDB connection string |
-| `JWT_ACCESS_SECRET` | Secret for access tokens |
-| `JWT_REFRESH_SECRET` | Secret for refresh tokens |
-| `JWT_ACCESS_EXPIRES` | Access token expiry (e.g., 15m) |
-| `JWT_REFRESH_EXPIRES` | Refresh token expiry (e.g., 7d) |
-| `GITHUB_CLIENT_ID` | GitHub OAuth App Client ID |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret |
-| `GITHUB_CALLBACK_URL` | GitHub OAuth callback URL |
-| `FRONTEND_URL` | Frontend URL for CORS |
+| Variable               | Description                          |
+| ---------------------- | ------------------------------------ |
+| `PORT`                 | Server port (default: 5000)          |
+| `NODE_ENV`             | Environment (development/production) |
+| `MONGODB_URI`          | MongoDB connection string            |
+| `JWT_ACCESS_SECRET`    | Secret for access tokens             |
+| `JWT_REFRESH_SECRET`   | Secret for refresh tokens            |
+| `JWT_ACCESS_EXPIRES`   | Access token expiry (e.g., 15m)      |
+| `JWT_REFRESH_EXPIRES`  | Refresh token expiry (e.g., 7d)      |
+| `GITHUB_CLIENT_ID`     | GitHub OAuth App Client ID           |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth App Client Secret       |
+| `GITHUB_CALLBACK_URL`  | GitHub OAuth callback URL            |
+| `FRONTEND_URL`         | Frontend URL for CORS                |
 
 ## Deployment
 

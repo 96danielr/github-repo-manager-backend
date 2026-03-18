@@ -1,25 +1,39 @@
 import mongoose from 'mongoose';
 
 const quotaSchema = new mongoose.Schema({
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true,
+  },
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    required: true,
+    index: true,
+  },
   contract: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'Contract', 
-    required: true 
-  }, // Contract ID (Reference to Contract model)
+    required: true,
+  },
   number: Number,
   type: { 
     type: String, 
     enum: ['inicial', 'normal'], 
-    default: 'normal' 
-  }, // Type of the quota example 'inicial' or 'normal'
-  value: Number, // Value of the quota
-  dueDate: Date, // Due date of the quota
+    default: 'normal',
+  },
+  value: Number,
+  dueDate: Date,
   status: { 
     type: String, 
     enum: ['pendiente', 'pagado', 'mora'], 
-    default: 'pendiente' 
-  }, // Status of the quota example 'pendiente' or 'pagado' or 'mora'
+    default: 'pendiente',
+  },
   excelRowId: Number,
 }, { timestamps: true });
+
+quotaSchema.index({ tenantId: 1, companyId: 1 });
 
 export default mongoose.model('Quota', quotaSchema);

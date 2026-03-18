@@ -28,6 +28,11 @@ const userAccountSchema = new mongoose.Schema({
     enum: ['active', 'inactive'],
     default: 'active',
   },
+  role: {
+    type: String,
+    enum: ['user', 'superadmin'],
+    default: 'user',
+  },
   lastLogin: Date,
 }, {
   timestamps: true,

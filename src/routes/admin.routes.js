@@ -14,7 +14,7 @@ const router = express.Router();
 // All admin-user routes require auth + tenant context + tenant_admin role
 router.use(protect);
 router.use(tenantMiddleware);
-router.use(restrictTo('tenant_admin'));
+router.use(restrictTo('superadmin', 'tenant_admin'));
 
 router.get('/all', getAllUsers);
 router.post('/create', createUser);

@@ -4,7 +4,8 @@ import {
   login,
   logout,
   getMe,
-  refreshToken,
+  selectTenant,
+  refreshTokenHandler,
 } from '../controllers/auth.controller.js';
 import { protect } from '../middleware/auth.js';
 import validate from '../middleware/validate.js';
@@ -15,12 +16,15 @@ import {
 
 const router = Router();
 
-// Auth routes
+// Public auth routes
 router.post('/register', registerValidation, validate, register);
 router.post('/login', loginValidation, validate, login);
-router.post('/admin/login', loginValidation, validate, login);
+router.post('/admin/login', loginValidation, validate, login); // alias for frontend compatibility
+router.post('/select-tenant', selectTenant);
+router.post('/refresh', refreshTokenHandler);
+
+// Protected auth routes
 router.post('/logout', protect, logout);
 router.get('/me', protect, getMe);
-router.post('/refresh', refreshToken);
 
 export default router;

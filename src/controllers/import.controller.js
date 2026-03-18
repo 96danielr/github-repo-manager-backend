@@ -15,6 +15,8 @@ export const importExcel = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
     }
 
+    const { id: tenantId, companyId } = req.tenant;
+
     // Read workbook from buffer
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
     const sheetName = workbook.SheetNames[0];
@@ -39,12 +41,24 @@ export const importExcel = async (req, res) => {
     let warnings = [];
 
     const getVal = (row, keyName) => {
-      const foundKey = Object.keys(row).find((k) => {
+      const keys = Object.keys(row);
+      const targetClean = keyName.toLowerCase().replace(/\s+/g, ' ').trim();
+      
+      // Try exact match first to avoid "mixing" (e.g. LOTE vs LOTE.1)
+      const exactKey = keys.find((k) => {
         const kClean = k.toLowerCase().replace(/\s+/g, ' ').trim();
-        const targetClean = keyName.toLowerCase().replace(/\s+/g, ' ').trim();
-        return kClean === targetClean || kClean.startsWith(targetClean + '.');
+        return kClean === targetClean;
       });
-      return foundKey ? row[foundKey] : undefined;
+      
+      if (exactKey) return row[exactKey];
+
+      // Fallback to startsWith for cases with suffixes like .1, .2
+      const prefixKey = keys.find((k) => {
+        const kClean = k.toLowerCase().replace(/\s+/g, ' ').trim();
+        return kClean.startsWith(targetClean + '.');
+      });
+      
+      return prefixKey ? row[prefixKey] : undefined;
     };
 
     // Helper to parse numbers from strings with currency or separators (handles LatAm/EU and US formats)
@@ -104,10 +118,10 @@ export const importExcel = async (req, res) => {
         // important logic to consolidate clients, without this the clients would be created multiple times
         if (cedula) {
           // If there is an ID number, search for it to consolidate the client
-          client = await Client.findOne({ idNumber: cedula });
+          client = await Client.findOne({ idNumber: cedula, tenantId, companyId });
         } else {
           // If there is no ID number, use the excelRowId to identify the client of that specific row
-          client = await Client.findOne({ excelRowId: excelRowId });
+          client = await Client.findOne({ excelRowId: excelRowId, tenantId, companyId });
         }
 
         if (client) {
@@ -119,6 +133,8 @@ export const importExcel = async (req, res) => {
           summary.clientsUpdated++;
         } else {
           client = await Client.create({
+            tenantId,
+            companyId,
             name: clienteNombre || `Cliente Fila ${excelRowId}`,
             idNumber: cedula,
             phone: getVal(row, 'TELEFONO')?.toString(),
@@ -141,10 +157,12 @@ export const importExcel = async (req, res) => {
           stage: lotData.stage,
           nomenclature: lotData.nomenclature,
           lotNumber: lotData.lotNumber,
+          tenantId,
+          companyId,
         });
 
         if (!lot) {
-          lot = await Lot.create(lotData);
+          lot = await Lot.create({ ...lotData, tenantId, companyId });
           summary.lotsCreated++;
         }
 
@@ -170,13 +188,13 @@ export const importExcel = async (req, res) => {
           excelRowId: excelRowId,
         };
 
-        let contract = await Contract.findOne({ client: client._id, lot: lot._id });
+        let contract = await Contract.findOne({ client: client._id, lot: lot._id, tenantId, companyId });
         
         if (contract) {
           Object.assign(contract, contractInfo);
           await contract.save();
         } else {
-          contract = await Contract.create(contractInfo);
+          contract = await Contract.create({ ...contractInfo, tenantId, companyId });
           summary.contractsCreated++;
         }
 
@@ -190,6 +208,8 @@ export const importExcel = async (req, res) => {
           const quotaVal = getVal(row, `CUOTA INICIAL ${j}`);
           if (quotaVal !== null && quotaVal !== undefined && quotaVal !== '') {
             await Quota.create({
+              tenantId,
+              companyId,
               contract: contract._id,
               number: j,
               type: 'inicial',
@@ -205,6 +225,8 @@ export const importExcel = async (req, res) => {
           const quotaVal = getVal(row, `CUOTA ${j}`);
           if (quotaVal !== null && quotaVal !== undefined && quotaVal !== '') {
             await Quota.create({
+              tenantId,
+              companyId,
               contract: contract._id,
               number: j,
               type: 'normal',
@@ -248,8 +270,10 @@ export const importExcel = async (req, res) => {
  */
 export const exportExcel = async (req, res) => {
   try {
-    // 1. Fetch all contracts and populate their client and lot
-    const contracts = await Contract.find().populate('client').populate('lot');
+    const { id: tenantId, companyId } = req.tenant;
+
+    // 1. Fetch all contracts for this tenant+company and populate their client and lot
+    const contracts = await Contract.find({ tenantId, companyId }).populate('client').populate('lot');
     
     // 2. Prepare data for Excel
     const exportData = [];
@@ -401,3 +425,88 @@ function parseExcelDate(val) {
   const d = new Date(val);
   return isNaN(d.getTime()) ? null : d;
 }
+
+/**
+ * Generates an Excel template with headers for data import
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ */
+export const downloadTemplate = async (req, res) => {
+  try {
+    // Define the headers and sample data in the exact order as exportExcel
+    const row = {
+      'No.': 1,
+      'ETAPA': 'Etapa 1',
+      'NOMENCLATURA': 'Mz A Lote 5',
+      'LOTE': '5',
+      'METROS 2': 100,
+      'CEDULA': '12345678',
+      'CLIENTE': 'Juan Pérez',
+      'FECHA CONTRATO': '15-01-24',
+      'NEGOCIACION': 'Crédito Directo',
+      'OTRO SI': '',
+      'FECHA INICIO CUOTAS': '01-02-24',
+      'VALOR DEL CONTRATO': 25000000,
+      'NO. CUOTAS': 24,
+      'VALOR CUOTA': 1000000,
+      'LOTE.1': '5',
+      'DIA DE PAGO': 5,
+      'TELEFONO': '3101234567',
+      'BONO': 'Bono Fin de Año',
+      '# CUOTA INICIAL': 5,
+      'VALOR BONO': 500000,
+    };
+
+    // Add Initial Quotas (fixed columns 1-5)
+    for (let j = 1; j <= 5; j++) {
+      row[`CUOTA INICIAL ${j}`] = 200000;
+    }
+
+    // Add Regular Quotas (fixed columns 1-24)
+    for (let j = 1; j <= 24; j++) {
+      row[`CUOTA ${j}`] = j <= 6 ? 1000000 : '';
+    }
+
+    // Add trailing calculated and additional fields
+    Object.assign(row, {
+      'CUOTAS PAGADAS': '',
+      'CUOTAS PENDIENTES': '',
+      'RECAUDADO': '',
+      'POR RECAUDAR': '',
+      '% RECAUDO': '',
+      'ESTADO DE MORA': '',
+      'RECAUDADO SIIGO 2024': 0,
+      'RECAUDADO SIIGO 2025': 0,
+      'TOTAL RECAUDADO SIIGO': '',
+      'POR RECAUDAR EN SIIGO': '',
+      '% RECAUDO.1': '',
+      'COMERCIAL': 'Asesor 1',
+      'COMPORTAMIENTO CLIENTE': 'Excelente',
+      'REQUERIMIENTO JURIDICO': '',
+      'OBSERVACIONES': 'Cliente puntual',
+    });
+
+    const templateData = [row];
+
+    // Create workbook and sheet
+    const worksheet = XLSX.utils.json_to_sheet(templateData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla Importación');
+    
+    // Generate buffer
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    // Send file
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=plantilla-cobranza.xlsx');
+    res.send(buffer);
+    
+  } catch (error) {
+    console.error('Template error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error al generar la plantilla', 
+      error: error.message, 
+    });
+  }
+};

@@ -20,10 +20,10 @@ const DEFAULT_CATEGORIES = [
   { name: 'Otros gastos', type: 'expense', icon: 'MoreHorizontal', color: '#8b949e' },
 ];
 
-export const seedDefaultCategories = async (userId) => {
+export const seedDefaultCategories = async (tenantId) => {
   const categories = DEFAULT_CATEGORIES.map(cat => ({
     ...cat,
-    user: userId,
+    tenantId,
     isDefault: true,
   }));
 

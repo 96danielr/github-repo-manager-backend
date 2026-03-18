@@ -1,6 +1,12 @@
 import mongoose from 'mongoose';
 
 const transactionSchema = new mongoose.Schema({
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: true,
+    index: true,
+  },
   type: {
     type: String,
     required: [true, 'Transaction type is required'],
@@ -25,7 +31,7 @@ const transactionSchema = new mongoose.Schema({
     ref: 'Category',
     required: [true, 'Category is required'],
   },
-  user: {
+  userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: [true, 'Transaction must belong to a user'],
@@ -44,12 +50,12 @@ const transactionSchema = new mongoose.Schema({
   timestamps: true,
 });
 
-transactionSchema.index({ user: 1, date: -1 });
-transactionSchema.index({ user: 1, type: 1 });
-transactionSchema.index({ user: 1, category: 1 });
-transactionSchema.index({ user: 1, date: -1, type: 1 });
+transactionSchema.index({ tenantId: 1, date: -1 });
+transactionSchema.index({ tenantId: 1, type: 1 });
+transactionSchema.index({ tenantId: 1, category: 1 });
+transactionSchema.index({ userId: 1, date: -1, type: 1 });
 
-transactionSchema.methods.toJSON = function() {
+transactionSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.__v;
   return obj;

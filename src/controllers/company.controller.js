@@ -1,13 +1,33 @@
 import Company from '../models/Company.js';
+import Tenant from '../models/Tenant.js';
 import AppError from '../utils/AppError.js';
 
 /**
  * Get all companies for the current tenant.
+ * If superadmin, return all tenants (enterprises) instead.
  */
 export const getCompanies = async (req, res, next) => {
   try {
-    const { id: tenantId } = req.tenant;
+    // Check if superadmin (we use req.user.role from the JWT)
+    if (req.user.role === 'superadmin') {
+      const tenants = await Tenant.find({}).sort({ createdAt: -1 });
+      
+      // Map tenants to company-like objects for frontend compatibility
+      const mappedAsCompanies = tenants.map(t => ({
+        _id: t._id,
+        name: t.name,
+        status: t.status === 'suspended' ? 'inactive' : 'active',
+        // use plan as a secondary info
+        rfc: `Plan: ${t.plan}`
+      }));
 
+      return res.json({
+        success: true,
+        data: { companies: mappedAsCompanies },
+      });
+    }
+
+    const { id: tenantId } = req.tenant;
     const companies = await Company.find({ tenantId }).sort({ createdAt: -1 });
 
     res.json({
