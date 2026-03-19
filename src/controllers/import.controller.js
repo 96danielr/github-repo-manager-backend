@@ -112,39 +112,7 @@ export const importExcel = async (req, res) => {
         const cedula = getVal(row, 'CEDULA')?.toString().trim() || undefined;
         const clienteNombre = getVal(row, 'CLIENTE')?.toString().trim();
 
-        // 1. Client Management
-        let client;
-
-        // important logic to consolidate clients, without this the clients would be created multiple times
-        if (cedula) {
-          // If there is an ID number, search for it to consolidate the client
-          client = await Client.findOne({ idNumber: cedula, tenantId, companyId });
-        } else {
-          // If there is no ID number, use the excelRowId to identify the client of that specific row
-          client = await Client.findOne({ excelRowId: excelRowId, tenantId, companyId });
-        }
-
-        if (client) {
-          if (clienteNombre) client.name = clienteNombre;
-          client.phone = getVal(row, 'TELEFONO')?.toString() || client.phone;
-          client.behavior = getVal(row, 'COMPORTAMIENTO CLIENTE') || client.behavior;
-          client.excelRowId = excelRowId;
-          await client.save();
-          summary.clientsUpdated++;
-        } else {
-          client = await Client.create({
-            tenantId,
-            companyId,
-            name: clienteNombre || `Cliente Fila ${excelRowId}`,
-            idNumber: cedula,
-            phone: getVal(row, 'TELEFONO')?.toString(),
-            behavior: getVal(row, 'COMPORTAMIENTO CLIENTE'),
-            excelRowId: excelRowId,
-          });
-          summary.clientsCreated++;
-        }
-
-        // 2. Lot Management
+        // 1. Lot Management (Process lot regardless of client existence)
         const lotData = {
           stage: getVal(row, 'ETAPA')?.toString() || 'N/A',
           nomenclature: getVal(row, 'NOMENCLATURA')?.toString() || 'N/A',
@@ -164,6 +132,44 @@ export const importExcel = async (req, res) => {
         if (!lot) {
           lot = await Lot.create({ ...lotData, tenantId, companyId });
           summary.lotsCreated++;
+        }
+
+        // If no client name, we only create/update the lot and skip the rest
+        if (!clienteNombre) {
+          summary.rowsProcessed++;
+          continue;
+        }
+
+        // 2. Client Management
+        let client;
+
+        // important logic to consolidate clients, without this the clients would be created multiple times
+        if (cedula) {
+          // If there is an ID number, search for it to consolidate the client
+          client = await Client.findOne({ idNumber: cedula, tenantId, companyId });
+        } else {
+          // If there is no ID number, use the excelRowId to identify the client of that specific row
+          client = await Client.findOne({ excelRowId: excelRowId, tenantId, companyId });
+        }
+
+        if (client) {
+          client.name = clienteNombre;
+          client.phone = getVal(row, 'TELEFONO')?.toString() || client.phone;
+          client.behavior = getVal(row, 'COMPORTAMIENTO CLIENTE') || client.behavior;
+          client.excelRowId = excelRowId;
+          await client.save();
+          summary.clientsUpdated++;
+        } else {
+          client = await Client.create({
+            tenantId,
+            companyId,
+            name: clienteNombre,
+            idNumber: cedula,
+            phone: getVal(row, 'TELEFONO')?.toString(),
+            behavior: getVal(row, 'COMPORTAMIENTO CLIENTE'),
+            excelRowId: excelRowId,
+          });
+          summary.clientsCreated++;
         }
 
         // 3. Contract Management
