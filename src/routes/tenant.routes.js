@@ -1,5 +1,9 @@
 import express from 'express';
-import { createTenantWithAdmin, getAllTenants } from '../controllers/tenant.controller.js';
+import { 
+  createTenantWithAdmin, 
+  getAllTenants, 
+  updateTenant 
+} from '../controllers/tenant.controller.js';
 import { protect, restrictTo } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -10,5 +14,6 @@ router.use(restrictTo('superadmin'));
 
 router.get('/all', getAllTenants);
 router.post('/create-with-admin', createTenantWithAdmin);
+router.put('/:id', updateTenant);
 
 export default router;

@@ -13,13 +13,13 @@ export const getCompanies = async (req, res, next) => {
       const tenants = await Tenant.find({}).sort({ createdAt: -1 });
       
       // Map tenants to company-like objects for frontend compatibility
-      const mappedAsCompanies = tenants.map(t => ({
-        _id: t._id,
-        name: t.name,
-        status: t.status === 'suspended' ? 'inactive' : 'active',
-        // use plan as a secondary info
-        rfc: `Plan: ${t.plan}`
-      }));
+      const mappedAsCompanies = tenants.map((t) => ({
+    _id: t._id,
+    name: t.name,
+    status: t.status === 'suspended' ? 'inactive' : 'active',
+    // use plan as a secondary info
+    rfc: `Plan: ${t.plan}`,
+  }));
 
       return res.json({
         success: true,
@@ -117,6 +117,18 @@ export const deleteCompany = async (req, res, next) => {
       success: true,
       message: 'Company deactivated successfully',
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getCompanyPublic = async (req, res, next) => {
+  try {
+    const company = await Company.findById(req.params.id).select('name status');
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Inmobiliaria no encontrada' });
+    }
+    res.json({ success: true, data: company });
   } catch (error) {
     next(error);
   }

@@ -63,6 +63,10 @@ const buildUserResponse = (account, membership) => {
     role: membership.role,
     tenantId: tenantObj?._id ? tenantObj._id.toString() : tenantObj.toString(),
     tenantName: tenantObj?.name || '',
+    plan: tenantObj?.plan || 'basic',
+    activeModules: tenantObj?.activeModules || ['cobranzas'],
+    subscriptionStart: tenantObj?.subscriptionStart,
+    subscriptionEnd: tenantObj?.subscriptionEnd,
   };
 };
 
@@ -156,11 +160,11 @@ export const login = async (req, res, next) => {
     const memberships = await User.find({
       accountId: account._id,
       status: 'active',
-    }).populate('tenantId', 'name plan status');
+    }).populate('tenantId', 'name plan status activeModules subscriptionStart subscriptionEnd');
 
     // Filter memberships with active tenants
     const activeMemberships = memberships.filter(
-      m => m.tenantId && m.tenantId.status !== 'suspended'
+      (m) => m.tenantId && m.tenantId.status !== 'suspended'
     );
 
     if (activeMemberships.length === 0) {
@@ -196,7 +200,7 @@ export const login = async (req, res, next) => {
       data: {
         requiresTenantSelection: true,
         accountId: account._id,
-        memberships: activeMemberships.map(m => ({
+        memberships: activeMemberships.map((m) => ({
           userId: m._id,
           tenantId: m.tenantId._id,
           tenantName: m.tenantId.name,
@@ -231,7 +235,7 @@ export const selectTenant = async (req, res, next) => {
       accountId: account._id,
       tenantId: tenantId,
       status: 'active',
-    }).populate('tenantId', 'name plan status');
+    }).populate('tenantId', 'name plan status activeModules subscriptionStart subscriptionEnd');
 
     if (!membership) {
       return next(new AppError('No active membership for this tenant', 401));
@@ -297,7 +301,7 @@ export const getMe = async (req, res, next) => {
         userId: req.user.userId,
         tenantId: req.user.tenantId,
       }).populate('companyId');
-      companies = userCompanies.map(uc => uc.companyId);
+      companies = userCompanies.map((uc) => uc.companyId);
     }
 
     res.json({
@@ -310,7 +314,7 @@ export const getMe = async (req, res, next) => {
           tenantName: tenant?.name,
         },
         tenant: tenant?.toJSON(),
-        companies: companies.map(c => c.toJSON()),
+        companies: companies.map((c) => c.toJSON()),
       },
     });
   } catch (error) {

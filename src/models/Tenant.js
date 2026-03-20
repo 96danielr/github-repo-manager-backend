@@ -12,6 +12,17 @@ const tenantSchema = new mongoose.Schema({
     enum: ['basic', 'premium', 'enterprise'],
     default: 'basic',
   },
+  subscriptionStart: {
+    type: Date,
+    default: Date.now,
+  },
+  subscriptionEnd: {
+    type: Date,
+  },
+  activeModules: {
+    type: [String],
+    default: ['cobranzas'],
+  },
   status: {
     type: String,
     enum: ['active', 'suspended', 'trial'],

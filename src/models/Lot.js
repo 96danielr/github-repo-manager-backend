@@ -28,6 +28,12 @@ const lotSchema = new mongoose.Schema({
   area: {
     type: Number,
   },
+  price: {
+    type: Number,
+  },
+  images: [{
+    type: String,
+  }],
   excelRowId: Number,
 }, { timestamps: true });
 

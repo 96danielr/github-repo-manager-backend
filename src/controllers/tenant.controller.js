@@ -66,7 +66,7 @@ export const createTenantWithAdmin = async (req, res, next) => {
 };
 
 /**
- * Superadmin can list all tenants (already handled by getCompanies for now)
+ * Superadmin can list all tenants
  */
 export const getAllTenants = async (req, res, next) => {
   try {
@@ -74,6 +74,41 @@ export const getAllTenants = async (req, res, next) => {
     res.json({
       success: true,
       data: { tenants },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateTenant = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { 
+      name, 
+      plan, 
+      subscriptionStart, 
+      subscriptionEnd, 
+      activeModules, 
+      status, 
+    } = req.body;
+
+    const tenant = await Tenant.findById(id);
+    if (!tenant) {
+      return next(new AppError('Tenant not found', 404));
+    }
+
+    if (name) tenant.name = name;
+    if (plan) tenant.plan = plan;
+    if (subscriptionStart) tenant.subscriptionStart = subscriptionStart;
+    if (subscriptionEnd) tenant.subscriptionEnd = subscriptionEnd;
+    if (activeModules) tenant.activeModules = activeModules;
+    if (status) tenant.status = status;
+
+    await tenant.save();
+
+    res.json({
+      success: true,
+      data: { tenant },
     });
   } catch (error) {
     next(error);
