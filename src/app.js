@@ -17,12 +17,24 @@ import companyRoutes from './routes/company.routes.js';
 import tenantRoutes from './routes/tenant.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
 import errorHandler from './middleware/errorHandler.js';
+import connectDB from './config/database.js';
 
 const app = express();
 app.set('trust proxy', 1);
 
 // Security headers
 app.use(helmet());
+
+// Ensure Database Connection (Serverless robustness)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    // If DB fails, hand off to error handler
+    next(err);
+  }
+});
 
 // CORS
 app.use(cors({
