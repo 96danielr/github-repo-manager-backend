@@ -18,6 +18,14 @@ router.get('/', companyMiddleware, async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
     const search = req.query.search || '';
+    const sortBy = req.query.sortBy;
+    const order = req.query.order;
+
+    // Dynamic sort
+    let sortObj = { createdAt: -1 };
+    if (sortBy) {
+      sortObj = { [sortBy]: order === 'asc' ? 1 : -1 };
+    }
 
     let query = { tenantId, companyId };
     if (search) {
@@ -30,7 +38,7 @@ router.get('/', companyMiddleware, async (req, res) => {
 
     const total = await Client.countDocuments(query);
     const clients = await Client.find(query)
-      .sort({ createdAt: -1 })
+      .sort(sortObj)
       .skip(skip)
       .limit(limit);
 

@@ -23,8 +23,14 @@ export const createLot = async (req, res, next) => {
 export const getLots = async (req, res, next) => {
   try {
     const { id: tenantId, companyId } = req.tenant;
-    const { page = 1, limit = 10, search } = req.query;
+    const { page = 1, limit = 10, search, sortBy, order } = req.query;
     const skip = (page - 1) * limit;
+
+    // Dynamic sort
+    let sortObj = { createdAt: -1 };
+    if (sortBy) {
+      sortObj = { [sortBy]: order === 'asc' ? 1 : -1 };
+    }
 
     let query = { tenantId, companyId };
     if (search) {
@@ -37,7 +43,7 @@ export const getLots = async (req, res, next) => {
 
     const total = await Lot.countDocuments(query);
     const lots = await Lot.find(query)
-      .sort({ createdAt: -1 })
+      .sort(sortObj)
       .skip(skip)
       .limit(parseInt(limit));
 

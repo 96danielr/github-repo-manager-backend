@@ -10,11 +10,25 @@ import AppError from '../utils/AppError.js';
 export const getPayments = async (req, res, next) => {
   try {
     const { id: tenantId, companyId } = req.tenant;
-    const { page = 1, limit = 20, search, status } = req.query;
+    const { page = 1, limit = 20, search, status, sortBy, order } = req.query;
 
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
+
+    // Build dynamic sort
+    let sortObj = { dueDate: -1 }; // Default
+    if (sortBy) {
+      const sortField = {
+        'amount': 'value',
+        'cuotaNumber': 'number',
+        'fechaPago': 'dueDate',
+        'status': 'status',
+        'createdAt': 'createdAt',
+      }[sortBy] || sortBy;
+
+      sortObj = { [sortField]: order === 'asc' ? 1 : -1 };
+    }
 
     // Base filter by tenant and company
     let query = { tenantId, companyId };
@@ -58,7 +72,7 @@ export const getPayments = async (req, res, next) => {
           { path: 'lot', select: 'lotNumber stage nomenclature area' },
         ],
       })
-      .sort({ dueDate: -1 })
+      .sort(sortObj)
       .skip(skip)
       .limit(limitNum);
 
