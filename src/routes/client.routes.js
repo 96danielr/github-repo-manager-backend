@@ -73,6 +73,21 @@ router.get('/', companyMiddleware, async (req, res) => {
         },
       },
       {
+        $addFields: {
+          'contracts.realPaid': {
+            $max: [
+              '$contracts.totalPagadoQuotas',
+              {
+                $add: [
+                  { $ifNull: ['$contracts.recaudadoSiigo2024', 0] },
+                  { $ifNull: ['$contracts.recaudadoSiigo2025', 0] },
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
         $group: {
           _id: '$_id',
           name: { $first: '$name' },
@@ -80,33 +95,20 @@ router.get('/', companyMiddleware, async (req, res) => {
           phone: { $first: '$phone' },
           behavior: { $first: '$behavior' },
           createdAt: { $first: '$createdAt' },
+          totalValue: { $sum: '$contracts.totalValue' },
+          totalPaid: { $sum: '$contracts.realPaid' },
           contracts: { $push: '$contracts' },
         },
       },
-      // Calculate final stats
       {
         $addFields: {
-          totalContracts: { 
+          totalContracts: {
             $cond: [
-              { $eq: [{ $arrayElemAt: ['$contracts', 0] }, {}] }, 
-              0, 
+              { $eq: [{ $arrayElemAt: ['$contracts', 0] }, {}] },
+              0,
               { $size: '$contracts' },
             ],
           },
-          totalValue: { $sum: '$contracts.totalValue' },
-          totalPaid: {
-            $max: [
-              { $sum: '$contracts.totalPagadoQuotas' },
-              { $add: [
-                { $sum: '$contracts.recaudadoSiigo2024' },
-                { $sum: '$contracts.recaudadoSiigo2025' },
-              ] },
-            ],
-          },
-        },
-      },
-      {
-        $addFields: {
           totalPending: { $subtract: ['$totalValue', '$totalPaid'] },
           porcentajeRecaudo: {
             $cond: [
