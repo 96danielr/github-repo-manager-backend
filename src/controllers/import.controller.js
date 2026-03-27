@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import XLSX from 'xlsx';
 import Client from '../models/Client.js';
 import Lot from '../models/Lot.js';
@@ -31,6 +32,9 @@ export const importExcel = async (req, res) => {
       clientsUpdated: 0,
       lotsCreated: 0,
       contractsCreated: 0,
+      initialQuotasCreated: 0,
+      normalQuotasCreated: 0,
+      quotasMarkedPaid: 0,
       paymentsRegistered: 0,
       rowsProcessed: 0,
       rowsSkipped: 0,
@@ -100,79 +104,121 @@ export const importExcel = async (req, res) => {
       return isNaN(result) ? 0 : result;
     };
 
+
+
+    // 1. PRE-LOAD CATALOGS for O(1) lookup and batch optimization
+    const [existingLots, existingClients, existingContracts] = await Promise.all([
+      Lot.find({ tenantId, companyId }),
+      Client.find({ tenantId, companyId }),
+      Contract.find({ tenantId, companyId }),
+    ]);
+
+    // Index maps
+    const lotMap = new Map(); // key: stage|nomenclature|lotNumber
+    existingLots.forEach((l) => lotMap.set(`${l.stage}|${l.nomenclature}|${l.lotNumber}`, l));
+
+    const clientByCedula = new Map();
+    const clientByExcelId = new Map();
+    existingClients.forEach((c) => {
+      if (c.idNumber) clientByCedula.set(c.idNumber, c);
+      if (c.excelRowId) clientByExcelId.set(c.excelRowId.toString(), c);
+    });
+
+    const contractMap = new Map(); // key: clientId|lotId
+    existingContracts.forEach((c) => contractMap.set(`${c.client}|${c.lot}`, c));
+
+    // Operations collectors for bulkWrite
+    const lotOps = [];
+    const clientOps = [];
+    const contractOps = [];
+    const quotasToInsert = [];
+    const contractIdsToClearQuotas = new Set();
+
     // Process each row of the Excel file
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
-      const rowNum = i + 2; // Fallback: physical row in file
-
-      // Get excelRowId directly from 'No.' column or fallback to rowNum
+      const rowNum = i + 2;
       const excelRowId = getVal(row, 'No.') || rowNum;
 
       try {
         const cedula = getVal(row, 'CEDULA')?.toString().trim() || undefined;
         const clienteNombre = getVal(row, 'CLIENTE')?.toString().trim();
 
-        // 1. Lot Management (Process lot regardless of client existence)
+        // 1. Lot Management (Logic: stage|nomen|lote)
+        const stage = getVal(row, 'ETAPA')?.toString() || 'N/A';
+        const nomenclature = getVal(row, 'NOMENCLATURA')?.toString() || 'N/A';
+        const lotNumber = getVal(row, 'LOTE')?.toString() || 'N/A';
+        const lotKey = `${stage}|${nomenclature}|${lotNumber}`;
+        
+        let lot = lotMap.get(lotKey);
         const lotData = {
-          stage: getVal(row, 'ETAPA')?.toString() || 'N/A',
-          nomenclature: getVal(row, 'NOMENCLATURA')?.toString() || 'N/A',
-          lotNumber: getVal(row, 'LOTE')?.toString() || 'N/A',
+          stage,
+          nomenclature,
+          lotNumber,
           area: parseFloat(getVal(row, 'METROS 2')) || 0,
           excelRowId: excelRowId,
-        };
-
-        let lot = await Lot.findOne({
-          stage: lotData.stage,
-          nomenclature: lotData.nomenclature,
-          lotNumber: lotData.lotNumber,
           tenantId,
           companyId,
-        });
+        };
 
         if (!lot) {
-          lot = await Lot.create({ ...lotData, tenantId, companyId });
+          const newId = new mongoose.Types.ObjectId();
+          lot = { ...lotData, _id: newId };
+          lotMap.set(lotKey, lot);
+          lotOps.push({
+            insertOne: { document: lot },
+          });
           summary.lotsCreated++;
+        } else {
+          lotOps.push({
+            updateOne: {
+              filter: { _id: lot._id },
+              update: { $set: lotData },
+            },
+          });
         }
 
-        // If no client name, we only create/update the lot and skip the rest
         if (!clienteNombre) {
           summary.rowsProcessed++;
           continue;
         }
 
-        // 2. Client Management
-        let client;
+        // 2. Client Management (Logic: cedula or excelRowId)
+        let client = cedula ? clientByCedula.get(cedula) : clientByExcelId.get(excelRowId.toString());
+        
+        const clientData = {
+          name: clienteNombre,
+          idNumber: cedula,
+          phone: getVal(row, 'TELEFONO')?.toString(),
+          behavior: getVal(row, 'COMPORTAMIENTO CLIENTE'),
+          excelRowId: excelRowId,
+          tenantId,
+          companyId,
+        };
 
-        // important logic to consolidate clients, without this the clients would be created multiple times
-        if (cedula) {
-          // If there is an ID number, search for it to consolidate the client
-          client = await Client.findOne({ idNumber: cedula, tenantId, companyId });
-        } else {
-          // If there is no ID number, use the excelRowId to identify the client of that specific row
-          client = await Client.findOne({ excelRowId: excelRowId, tenantId, companyId });
-        }
-
-        if (client) {
-          client.name = clienteNombre;
-          client.phone = getVal(row, 'TELEFONO')?.toString() || client.phone;
-          client.behavior = getVal(row, 'COMPORTAMIENTO CLIENTE') || client.behavior;
-          client.excelRowId = excelRowId;
-          await client.save();
-          summary.clientsUpdated++;
-        } else {
-          client = await Client.create({
-            tenantId,
-            companyId,
-            name: clienteNombre,
-            idNumber: cedula,
-            phone: getVal(row, 'TELEFONO')?.toString(),
-            behavior: getVal(row, 'COMPORTAMIENTO CLIENTE'),
-            excelRowId: excelRowId,
+        if (!client) {
+          const newId = new mongoose.Types.ObjectId();
+          client = { ...clientData, _id: newId };
+          if (cedula) clientByCedula.set(cedula, client);
+          clientByExcelId.set(excelRowId.toString(), client);
+          clientOps.push({
+            insertOne: { document: client },
           });
           summary.clientsCreated++;
+        } else {
+          clientOps.push({
+            updateOne: {
+              filter: { _id: client._id },
+              update: { $set: clientData },
+            },
+          });
+          summary.clientsUpdated++;
         }
 
-        // 3. Contract Management
+        // 3. Contract Management (Logic: client|lot)
+        const contractKey = `${client._id}|${lot._id}`;
+        let contract = contractMap.get(contractKey);
+        
         const contractInfo = {
           client: client._id,
           lot: lot._id,
@@ -192,54 +238,66 @@ export const importExcel = async (req, res) => {
           juridicalRequirement: getVal(row, 'REQUERIMIENTO JURIDICO'),
           observations: getVal(row, 'OBSERVACIONES'),
           excelRowId: excelRowId,
+          tenantId,
+          companyId,
         };
 
-        let contract = await Contract.findOne({ client: client._id, lot: lot._id, tenantId, companyId });
-        
-        if (contract) {
-          Object.assign(contract, contractInfo);
-          await contract.save();
-        } else {
-          contract = await Contract.create({ ...contractInfo, tenantId, companyId });
+        if (!contract) {
+          const newId = new mongoose.Types.ObjectId();
+          contract = { ...contractInfo, _id: newId };
+          contractMap.set(contractKey, contract);
+          contractOps.push({
+            insertOne: { document: contract },
+          });
           summary.contractsCreated++;
+        } else {
+          contractOps.push({
+            updateOne: {
+              filter: { _id: contract._id },
+              update: { $set: contractInfo },
+            },
+          });
         }
+        // 4. Quotas Preparation (Logic: Presence in Excel = Paid)
+        contractIdsToClearQuotas.add(contract._id);
 
-        // 4. Quotas Management
-
-        // Re-generate quotas to ensure consistency with the Excel file
-        await Quota.deleteMany({ contract: contract._id });
-
-        // Initial Quotas (1 to 5 as per standard Excel structure)
+        // Initial Quotas (1 to 5) - If value > 0, it means it was paid
         for (let j = 1; j <= 5; j++) {
           const quotaVal = getVal(row, `CUOTA INICIAL ${j}`);
-          if (quotaVal !== null && quotaVal !== undefined && quotaVal !== '') {
-            await Quota.create({
+          const val = parseNum(quotaVal);
+          if (val > 0) {
+            quotasToInsert.push({
               tenantId,
               companyId,
               contract: contract._id,
               number: j,
               type: 'inicial',
-              value: parseNum(quotaVal),
-              status: 'pendiente',
+              value: val,
+              status: 'pagado',
               excelRowId: excelRowId,
             });
+            summary.initialQuotasCreated++;
+            summary.quotasMarkedPaid++;
           }
         }
 
-        // Regular Quotas (1 to 24)
+        // Regular Quotas (1 to 24) - If value > 0, it means it was paid
         for (let j = 1; j <= 24; j++) {
           const quotaVal = getVal(row, `CUOTA ${j}`);
-          if (quotaVal !== null && quotaVal !== undefined && quotaVal !== '') {
-            await Quota.create({
+          const val = parseNum(quotaVal);
+          if (val > 0) {
+            quotasToInsert.push({
               tenantId,
               companyId,
               contract: contract._id,
               number: j,
               type: 'normal',
-              value: parseNum(quotaVal),
-              status: 'pendiente',
+              value: val,
+              status: 'pagado',
               excelRowId: excelRowId,
             });
+            summary.normalQuotasCreated++;
+            summary.quotasMarkedPaid++;
           }
         }
 
@@ -248,6 +306,23 @@ export const importExcel = async (req, res) => {
       } catch (err) {
         console.error(`Error processing row ${rowNum}:`, err);
         errors.push(`Fila ${rowNum}: ${err.message}`);
+      }
+    }
+
+    // 5. EXECUTE BULK OPERATIONS
+    if (lotOps.length > 0) await Lot.bulkWrite(lotOps);
+    if (clientOps.length > 0) await Client.bulkWrite(clientOps);
+    if (contractOps.length > 0) await Contract.bulkWrite(contractOps);
+
+    // Replace Quotas in bulk for touched contracts
+    if (contractIdsToClearQuotas.size > 0) {
+      await Quota.deleteMany({ contract: { $in: Array.from(contractIdsToClearQuotas) } });
+      if (quotasToInsert.length > 0) {
+        // Use chunks for very large files to avoid memory/packet limits
+        const chunk = 1000;
+        for (let i = 0; i < quotasToInsert.length; i += chunk) {
+          await Quota.insertMany(quotasToInsert.slice(i, i + chunk), { ordered: false });
+        }
       }
     }
 

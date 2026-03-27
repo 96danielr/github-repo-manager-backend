@@ -18,12 +18,51 @@ router.get('/summary', companyMiddleware, async (req, res) => {
 
     const totalClientsCount = await Client.countDocuments({ tenantId, companyId });
 
-    const portfolioTotal = await Contract.aggregate([
+    // Calculate Portfolio / Project Stats
+    const stats = await Contract.aggregate([
       { $match: { tenantId, companyId } },
-      { $group: { _id: null, total: { $sum: '$totalValue' } } },
+      {
+        $lookup: {
+          from: 'quotas',
+          localField: '_id',
+          foreignField: 'contract',
+          as: 'quotas',
+        },
+      },
+      {
+        $addFields: {
+          paidInQuotas: {
+            $sum: {
+              $map: {
+                input: { $filter: { input: '$quotas', as: 'q', cond: { $eq: ['$$q.status', 'pagado'] } } },
+                as: 'pq',
+                in: '$$pq.value',
+              },
+            },
+          },
+          siigoTotal: { $add: ['$recaudadoSiigo2024', '$recaudadoSiigo2025'] },
+        },
+      },
+      {
+        $addFields: {
+          realPaid: { $max: ['$paidInQuotas', '$siigoTotal'] },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          valorTotalCartera: { $sum: '$totalValue' },
+          totalRecaudado: { $sum: '$realPaid' },
+        },
+      },
     ]);
 
-    // Count team members in this tenant (for tenant_admin dashboard)
+    const result = stats[0] || { valorTotalCartera: 0, totalRecaudado: 0 };
+    const totalPendiente = Math.max(0, result.valorTotalCartera - result.totalRecaudado);
+    const porcentajeRecaudo = result.valorTotalCartera > 0 
+      ? (result.totalRecaudado / result.valorTotalCartera) * 100 
+      : 0;
+
     const teamMembersCount = await User.countDocuments({ tenantId, status: 'active' });
 
     res.json({
@@ -32,10 +71,10 @@ router.get('/summary', companyMiddleware, async (req, res) => {
         totalClients: totalClientsCount,
         teamMembers: teamMembersCount,
         cartera: {
-          valorTotalCartera: portfolioTotal[0]?.total || 0,
-          totalRecaudado: 0,
-          totalPendiente: portfolioTotal[0]?.total || 0,
-          porcentajeRecaudo: 0,
+          valorTotalCartera: result.valorTotalCartera,
+          totalRecaudado: result.totalRecaudado,
+          totalPendiente,
+          porcentajeRecaudo,
         },
         mora: {
           totalContratosActivos: 0,

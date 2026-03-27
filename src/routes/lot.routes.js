@@ -7,6 +7,7 @@ import {
   deleteLot,
   uploadLotImages,
   getLotsPublic,
+  sellLot,
 } from '../controllers/lot.controller.js';
 import { protect } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -26,6 +27,9 @@ router.use(tenantMiddleware);
 router.route('/')
   .get(companyMiddleware, getLots)
   .post(companyMiddleware, createLot);
+
+// Sale operation
+router.post('/:id/sell', companyMiddleware, sellLot);
 
 router.route('/:id')
   .get(getLot)

@@ -34,6 +34,11 @@ const lotSchema = new mongoose.Schema({
   images: [{
     type: String,
   }],
+  status: {
+    type: String,
+    enum: ['disponible', 'vendido'],
+    default: 'disponible',
+  },
   excelRowId: Number,
 }, { timestamps: true });
 
