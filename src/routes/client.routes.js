@@ -24,6 +24,9 @@ router.get('/', companyMiddleware, async (req, res) => {
     const search = req.query.search || '';
     const sortBy = req.query.sortBy;
     const order = req.query.order;
+    const behaviorFilter = req.query.behavior;
+    const moraOnly = req.query.moraOnly === 'true';
+    const alDiaOnly = req.query.alDiaOnly === 'true';
 
     // Dynamic sort
     let sortObj = { createdAt: -1 };
@@ -44,6 +47,10 @@ router.get('/', companyMiddleware, async (req, res) => {
       ];
     }
 
+    if (behaviorFilter && behaviorFilter !== 'ALL') {
+      matchQuery.behavior = behaviorFilter;
+    }
+
     const aggregatePipeline = [
       { $match: matchQuery },
       // Join with Contracts
@@ -62,14 +69,25 @@ router.get('/', companyMiddleware, async (req, res) => {
           from: 'quotas',
           let: { contractId: '$contracts._id' },
           pipeline: [
-            { $match: { $expr: { $eq: ['$contract', '$$contractId'] }, status: 'pagado' } },
+            { $match: { $expr: { $eq: ['$contract', '$$contractId'] } } },
           ],
-          as: 'paidQuotas',
+          as: 'allQuotas',
         },
       },
       {
         $addFields: {
-          'contracts.totalPagadoQuotas': { $sum: '$paidQuotas.value' },
+          'contracts.paidQuotas': {
+            $filter: { input: '$allQuotas', as: 'q', cond: { $eq: ['$$q.status', 'pagado'] } },
+          },
+          'contracts.moraQuotas': {
+            $filter: { input: '$allQuotas', as: 'q', cond: { $eq: ['$$q.status', 'mora'] } },
+          },
+        },
+      },
+      {
+        $addFields: {
+          'contracts.totalPagadoQuotas': { $sum: '$contracts.paidQuotas.value' },
+          'contracts.hasMora': { $gt: [{ $size: '$contracts.moraQuotas' }, 0] },
         },
       },
       {
@@ -97,6 +115,7 @@ router.get('/', companyMiddleware, async (req, res) => {
           createdAt: { $first: '$createdAt' },
           totalValue: { $sum: '$contracts.totalValue' },
           totalPaid: { $sum: '$contracts.realPaid' },
+          hasMora: { $max: '$contracts.hasMora' },
           contracts: { $push: '$contracts' },
         },
       },
@@ -119,12 +138,24 @@ router.get('/', companyMiddleware, async (req, res) => {
           },
         },
       },
-      { $sort: sortObj },
-      { $skip: skip },
-      { $limit: limit },
     ];
 
-    const total = await Client.countDocuments(matchQuery);
+    if (moraOnly) {
+      aggregatePipeline.push({ $match: { hasMora: true } });
+    } else if (alDiaOnly) {
+      aggregatePipeline.push({ $match: { totalContracts: { $gt: 0 }, hasMora: false } });
+    }
+
+    // Capture total for pagination before skip/limit
+    const countPipeline = [...aggregatePipeline, { $count: 'total' }];
+    const countResults = await Client.aggregate(countPipeline);
+    const total = countResults[0]?.total || 0;
+
+    // Apply sort, skip, limit
+    aggregatePipeline.push({ $sort: sortObj });
+    aggregatePipeline.push({ $skip: skip });
+    aggregatePipeline.push({ $limit: limit });
+
     const clients = await Client.aggregate(aggregatePipeline);
 
     res.json({

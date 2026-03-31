@@ -45,7 +45,7 @@ router.get('/summary', companyMiddleware, async (req, res) => {
       },
       {
         $addFields: {
-          realPaid: { $max: ['$paidInQuotas', '$siigoTotal'] },
+          realPaid: '$paidInQuotas',
         },
       },
       {

@@ -17,6 +17,8 @@ export const importExcel = async (req, res) => {
     }
 
     const { id: tenantId, companyId } = req.tenant;
+    const includeSiigo = req.query.includeSiigo !== 'false'; // Default true
+    const createClientsWithoutName = req.query.createClientsWithoutName !== 'false'; // Default true
 
     // Read workbook from buffer
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
@@ -82,20 +84,20 @@ export const importExcel = async (req, res) => {
           s = s.replace(/,/g, '');
         }
       } else if (s.includes(',')) {
-        // Only comma: 1.234 or 1,23
+        // Only comma: 1.234 or 1,23 or 0,123
         const parts = s.split(',');
-        if (parts.length === 2 && parts[1].length <= 2) {
-          // Likely decimal: 1234,56
+        // If it starts with 0 (or -0), or it has something other than 3 digits, it's a decimal
+        if (parts.length === 2 && (parts[1].length !== 3 || !parts[0] || Number(parts[0]) === 0)) {
           s = s.replace(',', '.');
         } else {
-          // Likely thousands: 1,234,567
+          // Multiple commas or exactly 3 digits after the only comma: thousands
           s = s.replace(/,/g, '');
         }
       } else if (s.includes('.')) {
-        // Only dot: 1.234 or 1.23
+        // Only dot: 1.234 or 1.23 or 0.123
         const parts = s.split('.');
-        if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {
-          // Likely thousands: 1.234 or 1.234.567
+        // Multiple dots OR exactly 3 digits (and not starting with 0 or empty): thousands
+        if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3 && parts[0] && Number(parts[0]) !== 0)) {
           s = s.replace(/\./g, '');
         }
       }
@@ -155,7 +157,7 @@ export const importExcel = async (req, res) => {
           stage,
           nomenclature,
           lotNumber,
-          area: parseFloat(getVal(row, 'METROS 2')) || 0,
+          area: parseNum(getVal(row, 'METROS 2')),
           excelRowId: excelRowId,
           tenantId,
           companyId,
@@ -178,16 +180,24 @@ export const importExcel = async (req, res) => {
           });
         }
 
-        if (!clienteNombre) {
+        // Check if there are any initial or normal quotas in this row
+        const hasInitialQuotas = [1, 2, 3, 4, 5].some((j) => parseNum(getVal(row, `CUOTA INICIAL ${j}`)) > 0);
+        const hasNormalQuotas = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].some((j) => parseNum(getVal(row, `CUOTA ${j}`)) > 0);
+        const hasSiigoRecord = includeSiigo && (parseNum(getVal(row, 'RECAUDADO SIIGO 2024')) > 0 || parseNum(getVal(row, 'RECAUDADO SIIGO 2025')) > 0);
+
+        if (!clienteNombre && !cedula && (!createClientsWithoutName || (!hasInitialQuotas && !hasNormalQuotas && !hasSiigoRecord))) {
           summary.rowsProcessed++;
           continue;
         }
+
+        // Determine an effective name if missing
+        const effectiveName = clienteNombre || (cedula ? `CLIENTE_CEDULA_${cedula}` : `CLIENTE_DESCONOCIDO_FILA_${rowNum}`);
 
         // 2. Client Management (Logic: cedula or excelRowId)
         let client = cedula ? clientByCedula.get(cedula) : clientByExcelId.get(excelRowId.toString());
         
         const clientData = {
-          name: clienteNombre,
+          name: effectiveName,
           idNumber: cedula,
           phone: getVal(row, 'TELEFONO')?.toString(),
           behavior: getVal(row, 'COMPORTAMIENTO CLIENTE'),
@@ -233,8 +243,8 @@ export const importExcel = async (req, res) => {
           bonus: getVal(row, 'BONO'),
           bonusValue: parseNum(getVal(row, 'VALOR BONO')),
           commercial: getVal(row, 'COMERCIAL'),
-          recaudadoSiigo2024: parseNum(getVal(row, 'RECAUDADO SIIGO 2024')),
-          recaudadoSiigo2025: parseNum(getVal(row, 'RECAUDADO SIIGO 2025')),
+          recaudadoSiigo2024: includeSiigo ? parseNum(getVal(row, 'RECAUDADO SIIGO 2024')) : 0,
+          recaudadoSiigo2025: includeSiigo ? parseNum(getVal(row, 'RECAUDADO SIIGO 2025')) : 0,
           juridicalRequirement: getVal(row, 'REQUERIMIENTO JURIDICO'),
           observations: getVal(row, 'OBSERVACIONES'),
           excelRowId: excelRowId,

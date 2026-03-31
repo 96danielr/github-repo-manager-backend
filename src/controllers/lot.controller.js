@@ -203,12 +203,12 @@ export const sellLot = async (req, res, next) => {
       clientId, 
       clientData, 
       totalValue, 
-      installmentsCount, 
-      initialQuotaPercentage, 
+      installmentsCount = 0, 
+      initialQuotaPercentage = 0, 
       initialQuotasCount = 1, 
       contractDate,
       startDate,
-      negotiation = 'Venta Directa'
+      negotiation = 'Venta Directa',
     } = req.body;
 
     const lot = await Lot.findById(id);
@@ -218,22 +218,34 @@ export const sellLot = async (req, res, next) => {
     // 1. Get or Create Client
     let client;
     if (clientId) {
-      client = await Client.findById(clientId);
+      client = await Client.findOne({ _id: clientId, tenantId, companyId });
       if (!client) return res.status(404).json({ success: false, message: 'Cliente seleccionado no existe' });
     } else if (clientData) {
-      client = await Client.create({
-        ...clientData,
-        tenantId,
-        companyId,
-      });
+      // Avoid creating duplicate clients if one with same ID number already exists
+      if (clientData.idNumber) {
+        client = await Client.findOne({ idNumber: clientData.idNumber, tenantId, companyId });
+      }
+      
+      if (!client) {
+        client = await Client.create({
+          ...clientData,
+          tenantId,
+          companyId,
+        });
+      }
     } else {
       return res.status(400).json({ success: false, message: 'Debe seleccionar un cliente o proporcionar datos para uno nuevo' });
     }
 
+    const finalTotalValue = totalValue || lot.price || 0;
+
     // 2. Initial Calculations
-    const initialAmountTotal = totalValue * (initialQuotaPercentage / 100);
-    const residualAmount = totalValue - initialAmountTotal;
-    const installmentValue = residualAmount / (installmentsCount || 1);
+    const initialAmountTotal = Math.round(finalTotalValue * (initialQuotaPercentage / 100) * 100) / 100;
+    const residualAmount = Math.round((finalTotalValue - initialAmountTotal) * 100) / 100;
+    
+    // We'll calculate installments properly in step 5
+    const installmentsCountParsed = parseInt(installmentsCount) || 0;
+    const installmentValueEstimate = installmentsCountParsed > 0 ? Math.round((residualAmount / installmentsCountParsed) * 100) / 100 : 0;
 
     // 3. Create Contract
     const contract = await Contract.create({
@@ -241,9 +253,9 @@ export const sellLot = async (req, res, next) => {
       companyId,
       client: client._id,
       lot: lot._id,
-      totalValue,
-      installmentsCount,
-      installmentValue,
+      totalValue: finalTotalValue,
+      installmentsCount: installmentsCountParsed,
+      installmentValue: installmentValueEstimate,
       contractDate: contractDate || new Date(),
       startDate: startDate || new Date(),
       negotiation,
@@ -254,34 +266,69 @@ export const sellLot = async (req, res, next) => {
     lot.status = 'vendido';
     await lot.save();
 
-    // 5. Generate Quotas
+    // 5. Generate Quotas with precise rounding and proper due dates
     const quotas = [];
+    const baseContractDate = contractDate ? new Date(contractDate) : new Date();
+    const baseStartDate = startDate ? new Date(startDate) : new Date();
 
-    // Initial Quotas
-    const initialValPerQuota = initialAmountTotal / (initialQuotasCount || 1);
-    for (let i = 1; i <= initialQuotasCount; i++) {
-      quotas.push({
-        tenantId,
-        companyId,
-        contract: contract._id,
-        number: i,
-        type: 'inicial',
-        value: initialValPerQuota,
-        status: 'pendiente',
-      });
+    // Initial Quotas breakdown
+    let currentInitialSum = 0;
+    const iCount = parseInt(initialQuotasCount) || 1;
+    const baseInitialVal = Math.round((initialAmountTotal / iCount) * 100) / 100;
+
+    for (let i = 1; i <= iCount; i++) {
+      let val = baseInitialVal;
+      if (i === iCount) {
+        val = Math.round((initialAmountTotal - currentInitialSum) * 100) / 100;
+      }
+      currentInitialSum += val;
+
+      const dueDate = new Date(baseContractDate);
+      dueDate.setMonth(dueDate.getMonth() + (i - 1));
+
+      if (val > 0) {
+        quotas.push({
+          tenantId,
+          companyId,
+          contract: contract._id,
+          number: i,
+          type: 'inicial',
+          value: val,
+          dueDate,
+          status: 'pendiente',
+        });
+      }
     }
 
-    // Regular Quotas
-    for (let i = 1; i <= installmentsCount; i++) {
-      quotas.push({
-        tenantId,
-        companyId,
-        contract: contract._id,
-        number: i,
-        type: 'normal',
-        value: installmentValue,
-        status: 'pendiente',
-      });
+    // Regular Quotas breakdown
+    let currentNormalSum = 0;
+    for (let i = 1; i <= installmentsCountParsed; i++) {
+      let val = installmentValueEstimate;
+      if (i === installmentsCountParsed) {
+        val = Math.round((residualAmount - currentNormalSum) * 100) / 100;
+      }
+      currentNormalSum += val;
+
+      const dueDate = new Date(baseStartDate);
+      dueDate.setMonth(dueDate.getMonth() + (i - 1));
+      
+      // If paymentDay is specified, force the day of the month
+      if (contract.paymentDay && contract.paymentDay >= 1 && contract.paymentDay <= 31) {
+        dueDate.setDate(contract.paymentDay);
+      }
+
+      if (val > 0) {
+        quotas.push({
+          tenantId,
+          companyId,
+          contract: contract._id,
+          number: i,
+          type: 'normal',
+          value: val,
+          dueDate,
+          status: 'pendiente',
+        });
+      }
     }
 
     if (quotas.length > 0) {
@@ -290,7 +337,7 @@ export const sellLot = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      message: 'Lote vendido exitosamente y contrato generado',
+      message: 'Lote vendido exitosamente y contrato generado con cuotas',
       data: {
         contract,
         client,
