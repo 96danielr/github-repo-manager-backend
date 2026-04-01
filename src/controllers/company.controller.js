@@ -14,12 +14,12 @@ export const getCompanies = async (req, res, next) => {
       
       // Map tenants to company-like objects for frontend compatibility
       const mappedAsCompanies = tenants.map((t) => ({
-    _id: t._id,
-    name: t.name,
-    status: t.status === 'suspended' ? 'inactive' : 'active',
-    // use plan as a secondary info
-    rfc: `Plan: ${t.plan}`,
-  }));
+        _id: t._id,
+        name: t.name,
+        status: t.status === 'suspended' ? 'inactive' : 'active',
+        // use plan as a secondary info
+        rfc: `Plan: ${t.plan}`,
+      }));
 
       return res.json({
         success: true,
@@ -33,6 +33,45 @@ export const getCompanies = async (req, res, next) => {
     res.json({
       success: true,
       data: { companies },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get a single company by ID.
+ */
+export const getCompany = async (req, res, next) => {
+  try {
+    const { id: tenantId } = req.tenant;
+    const companyId = req.params.id;
+
+    const company = await Company.findOne({ _id: companyId, tenantId });
+
+    if (!company) {
+      return next(new AppError('Company not found', 404));
+    }
+
+    if (!company.slug) {
+      // Basic slugification
+      const baseSlug = company.name
+        .toLowerCase()
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+      
+      // Attempt to save (if unique constraint fails, it will throw, which is fine for now)
+      company.slug = baseSlug || company._id.toString();
+      await company.save();
+    }
+
+    res.json({
+      success: true,
+      data: { company },
     });
   } catch (error) {
     next(error);

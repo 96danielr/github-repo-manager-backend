@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   getCompanies,
+  getCompany,
   createCompany,
   updateCompany,
   deleteCompany,
@@ -20,6 +21,7 @@ router.use(tenantMiddleware);
 
 // Only tenant_admin can manage companies
 router.get('/', getCompanies);
+router.get('/:id', getCompany);
 router.post('/', restrictTo('tenant_admin'), createCompany);
 router.put('/:id', restrictTo('tenant_admin'), updateCompany);
 router.delete('/:id', restrictTo('tenant_admin'), deleteCompany);

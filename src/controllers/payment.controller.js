@@ -31,7 +31,16 @@ export const getPayments = async (req, res, next) => {
     }
 
     // Base filter by tenant and company
-    let query = { tenantId, companyId };
+    let query = { 
+      tenantId, 
+      companyId,
+      $or: [
+        { status: 'pagado' },
+        { paymentDate: { $ne: null } },
+        { paymentCapture: { $ne: null } },
+        { paymentBank: { $ne: null } },
+      ],
+    };
 
     // Map frontend status names to Quota status values
     if (status && status !== 'ALL') {
@@ -40,7 +49,11 @@ export const getPayments = async (req, res, next) => {
         'PAGADO': 'pagado',
         'MORA': 'mora',
       };
-      query.status = statusMap[status] || status.toLowerCase();
+      const requestedStatus = statusMap[status] || status.toLowerCase();
+      
+      // If filtering by status, we still want to ensure it's a "payment" (has data or is paid)
+      // unless specifically searching for MORA or something.
+      query.status = requestedStatus;
     }
 
     // Search by client name or idNumber
@@ -90,9 +103,10 @@ export const getPayments = async (req, res, next) => {
       return {
         id: qObj._id,
         cuotaNumber: qObj.number || 0,
-        amount: qObj.value || 0,
-        banco: 'N/A', // Quotas don't have bank info
-        fechaPago: qObj.dueDate,
+        amount: qObj.amountPaid || qObj.value || 0,
+        banco: qObj.paymentBank || 'N/A',
+        fechaPago: qObj.paymentDate || qObj.dueDate,
+        comprobante: qObj.paymentCapture || null,
         status: statusMap[qObj.status] || qObj.status?.toUpperCase() || 'PENDIENTE',
         type: qObj.type,
         contract: {
@@ -180,6 +194,47 @@ export const rejectPayment = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Cuota revertida a pendiente',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+/**
+ * Admin: Manually register a payment for a quota (Auto-approved)
+ */
+export const registerManualPayment = async (req, res, next) => {
+  try {
+    const { id: tenantId, companyId } = req.tenant;
+    const { quotaId, amount, bank, observations, paymentDate } = req.body;
+    const file = req.file;
+
+    // Use regular Quota.findOne with companyId for scoping
+    const quota = await Quota.findOne({ _id: quotaId, tenantId, companyId });
+    if (!quota) {
+      return next(new AppError('Cuota no encontrada', 404));
+    }
+
+    let captureUrl = null;
+    if (file) {
+      const { uploadToR2 } = await import('../utils/storage.js');
+      captureUrl = await uploadToR2(file, 'payments');
+    }
+
+    // Admin payments are auto-approved
+    quota.status = 'pagado';
+    quota.amountPaid = amount || quota.value;
+    quota.paymentBank = bank;
+    quota.paymentObservations = observations;
+    quota.paymentDate = paymentDate || new Date();
+    if (captureUrl) {
+      quota.paymentCapture = captureUrl;
+    }
+
+    await quota.save();
+
+    res.json({
+      success: true,
+      message: 'Pago registrado y aprobado exitosamente',
     });
   } catch (error) {
     next(error);

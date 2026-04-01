@@ -13,6 +13,12 @@ const companySchema = new mongoose.Schema({
     trim: true,
     maxlength: [150, 'Name cannot exceed 150 characters'],
   },
+  slug: {
+    type: String,
+    trim: true,
+    lowercase: true,
+    unique: true,
+  },
   rfc: {
     type: String,
     trim: true,

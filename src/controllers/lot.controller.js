@@ -8,8 +8,26 @@ export const createLot = async (req, res, next) => {
   try {
     const { id: tenantId, companyId } = req.tenant;
 
+    const { 
+      stage, 
+      nomenclature, 
+      lotNumber, 
+      area, 
+      price, 
+      images, 
+      status,
+      excelRowId,
+    } = req.body;
+
     const lot = await Lot.create({
-      ...req.body,
+      stage,
+      nomenclature,
+      lotNumber,
+      area,
+      price,
+      images: images || [],
+      status: status || 'disponible',
+      excelRowId,
       tenantId,
       companyId,
     });
@@ -89,10 +107,32 @@ export const getLot = async (req, res, next) => {
 
 export const updateLot = async (req, res, next) => {
   try {
-    const lot = await Lot.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const { 
+      stage, 
+      nomenclature, 
+      lotNumber, 
+      area, 
+      price, 
+      images, 
+      status,
+    } = req.body;
+
+    const lot = await Lot.findByIdAndUpdate(
+      req.params.id, 
+      { 
+        stage, 
+        nomenclature, 
+        lotNumber, 
+        area, 
+        price, 
+        images, 
+        status,
+      }, 
+      {
+        new: true,
+        runValidators: true,
+      },
+    );
 
     if (!lot) {
       return res.status(404).json({

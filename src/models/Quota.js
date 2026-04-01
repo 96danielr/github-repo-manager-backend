@@ -31,6 +31,11 @@ const quotaSchema = new mongoose.Schema({
     enum: ['pendiente', 'pagado', 'mora'], 
     default: 'pendiente',
   },
+  paymentCapture: String,
+  paymentBank: String,
+  paymentDate: Date,
+  paymentObservations: String,
+  amountPaid: Number,
   excelRowId: Number,
 }, { timestamps: true });
 

@@ -197,7 +197,7 @@ router.get('/:id', companyMiddleware, async (req, res) => {
       // Find all quotas for this contract
       const allQuotas = await Quota.find({ 
         contract: contractId, 
-      });
+      }).sort({ type: 1, number: 1 });
       
       const initialQuotas = allQuotas.filter((q) => q.type === 'inicial');
       const normalQuotas = allQuotas.filter((q) => q.type === 'normal');
@@ -241,6 +241,7 @@ router.get('/:id', companyMiddleware, async (req, res) => {
         valorCuota: contract.installmentValue || 0,
         diasMora: 0, 
         status: 'ACTIVO',
+        quotas: allQuotas,
       };
     }));
 
@@ -251,6 +252,56 @@ router.get('/:id', companyMiddleware, async (req, res) => {
         contracts: contractsWithStats,
       },
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// POST /clients - Manual creation
+router.post('/', companyMiddleware, async (req, res) => {
+  try {
+    const { id: tenantId, companyId } = req.tenant;
+    const { name, idNumber, phone, email, address, behavior } = req.body;
+
+    if (!name || !idNumber) {
+      return res.status(400).json({ success: false, message: 'Nombre y Cédula son obligatorios' });
+    }
+
+    // Check if client already exists in this company
+    const existing = await Client.findOne({ idNumber, tenantId, companyId });
+    if (existing) {
+      return res.status(400).json({ success: false, message: 'Ya existe un cliente con esta cédula' });
+    }
+
+    const client = await Client.create({
+      name,
+      idNumber,
+      phone,
+      email,
+      address,
+      behavior: behavior || 'INDECISO',
+      tenantId,
+      companyId,
+    });
+
+    res.status(201).json({ success: true, data: client });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// DELETE /clients/:id
+router.delete('/:id', companyMiddleware, async (req, res) => {
+  try {
+    const { id: tenantId, companyId } = req.tenant;
+    const { id } = req.params;
+
+    const result = await Client.findOneAndDelete({ _id: id, tenantId, companyId });
+    if (!result) {
+      return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
+    }
+
+    res.json({ success: true, message: 'Cliente eliminado correctamente' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
