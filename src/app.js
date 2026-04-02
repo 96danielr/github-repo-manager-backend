@@ -17,6 +17,7 @@ import companyRoutes from './routes/company.routes.js';
 import tenantRoutes from './routes/tenant.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
 import publicRoutes from './routes/public.routes.js';
+import bankRoutes from './routes/bank.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 import connectDB from './config/database.js';
 
@@ -94,6 +95,7 @@ app.use('/api/companies', companyRoutes);
 app.use('/api/tenants', tenantRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/banks', bankRoutes);
 
 // 404 handler
 app.use((req, res) => {

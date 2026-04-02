@@ -23,6 +23,11 @@ const contractSchema = new mongoose.Schema({
     ref: 'Lot', 
     required: true,
   },
+  sellerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false,
+  },
   contractDate: Date,
   negotiation: String, 
   appendix: String,

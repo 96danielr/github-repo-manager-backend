@@ -8,6 +8,7 @@ import {
   uploadLotImages,
   getLotsPublic,
   sellLot,
+  getLotSaleDetail,
 } from '../controllers/lot.controller.js';
 import { protect } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -35,6 +36,8 @@ router.route('/:id')
   .get(getLot)
   .put(updateLot)
   .delete(deleteLot);
+
+router.get('/:id/sale-detail', companyMiddleware, getLotSaleDetail);
 
 // Image upload
 router.post('/:id/images', upload.array('images', 5), uploadLotImages);

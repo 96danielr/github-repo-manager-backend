@@ -1,0 +1,828 @@
+[{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834364"
+  },
+  "type": "1",
+  "code": "1",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO DE BOGOTÁ S.A.",
+  "acronym": "BANCO DE BOGOTÁ S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.813Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.813Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834365"
+  },
+  "type": "1",
+  "code": "2",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO POPULAR S.A.",
+  "acronym": "BANCO POPULAR",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834366"
+  },
+  "type": "1",
+  "code": "6",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "ITAÚ COLOMBIA S.A., ES UNA SOCIEDAD COMERCIAL ANÓNIMA, DE NACIONALIDAD COLOMBIANA. ITAÚ COLOMBIA S.A. PODRÁ UTILIZAR CUALQUIERA DE LAS SIGUIENTES SIGLAS: ITAÚ; BANCO ITAÚ.",
+  "acronym": "ITAÚ; BANCO ITAÚ.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834367"
+  },
+  "type": "1",
+  "code": "7",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCOLOMBIA S.A. O BANCO DE COLOMBIA S.A. O BANCOLOMBIA",
+  "acronym": "BANCOLOMBIA",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834368"
+  },
+  "type": "1",
+  "code": "9",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "CITIBANK-COLOMBIA -  EXPRESIÓN CITIBANK",
+  "acronym": "CITIBANK",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834369"
+  },
+  "type": "1",
+  "code": "12",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO GNB SUDAMERIS S.A.  QUIEN PODRÁ UTILIZAR EL NOMBRE BANCO GNB SUDAMERIS O SUDAMERIS, SEGUIDOS O NO DE LAS EXPRESIONES SOCIEDAD ANÓNIMA O LA SIGLA S.A.",
+  "acronym": "BANCO GNB SUDAMERIS",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.814Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183436a"
+  },
+  "type": "1",
+  "code": "13",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO BILBAO VIZCAYA ARGENTARIA COLOMBIA S.A. PODRÁ UTILIZAR EL NOMBRE BBVA COLOMBIA",
+  "acronym": "BBVA COLOMBIA",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183436b"
+  },
+  "type": "1",
+  "code": "23",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO DE OCCIDENTE S.A.",
+  "acronym": "BANCO DE OCCIDENTE",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183436c"
+  },
+  "type": "1",
+  "code": "30",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO CAJA SOCIAL S.A. Y PODRÁ USAR EL NOMBRE BANCO CAJA SOCIAL",
+  "acronym": "BANCO CAJA SOCIAL S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183436d"
+  },
+  "type": "1",
+  "code": "39",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO DAVIVIENDA S.A. \"BANCO DAVIVIENDA\" O \"DAVIVIENDA\"",
+  "acronym": "BANCO DAVIVIENDA",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183436e"
+  },
+  "type": "1",
+  "code": "42",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "\"BANCO DAVIBANK\", (EN ADELANTE LA \"SOCIEDAD O EL BANCO\"), PERO EN  SUS RELACIONES COMECIALES PODRÁ INDETIFICARSE COMO BANCO DAVIBANK   O UTILIZAR LAS SIGLAS DAVIBANK S.A. O DAVIBANK.",
+  "acronym": "DAVIBANK S.A. O DAVIBANK.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183436f"
+  },
+  "type": "1",
+  "code": "43",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO AGRARIO DE COLOMBIA S.A. Y PODRÁ USAR EL NOMBRE BANCO AGRARIO DE COLOMBIA  O BANAGRARIO.",
+  "acronym": "BANCO AGRARIO DE COLOMBIA  O BANAGRARIO.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834370"
+  },
+  "type": "1",
+  "code": "49",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO COMERCIAL AV VILLAS S.A. PODRÁ GIRAR BAJO LA DENOMINACIÓN BANCO DE AHORRO Y VIVIENDA AV VILLAS, BANCO AV VILLAS O AV VILLAS.",
+  "acronym": "AV VILLAS",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834371"
+  },
+  "type": "1",
+  "code": "51",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCIEN S.A. Y/O BAN100 S.A.",
+  "acronym": "BAN100 S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834372"
+  },
+  "type": "1",
+  "code": "52",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO DE LAS MICROFINANZAS -BANCAMÍA S.A.",
+  "acronym": "BANCAMÍA S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834373"
+  },
+  "type": "1",
+  "code": "53",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO W S.A.",
+  "acronym": "BANCO W S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834374"
+  },
+  "type": "1",
+  "code": "54",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO COOMEVA S.A.  - SIGLA \"BANCOOMEVA\"",
+  "acronym": "BANCOOMEVA",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834375"
+  },
+  "type": "1",
+  "code": "55",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO FINANDINA S.A. O FINANDINA ESTABLECIMIENTO BANCARIO",
+  "acronym": "FINANDINA BIC O BANCO FINANDINA BIC O FINANDINA.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834376"
+  },
+  "type": "1",
+  "code": "56",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO FALABELLA S.A.",
+  "acronym": "BANCO FALABELLA S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834377"
+  },
+  "type": "1",
+  "code": "57",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO PICHINCHA S.A.",
+  "acronym": "BANCO PICHINCHA S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834378"
+  },
+  "type": "1",
+  "code": "58",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "EL BANCO COOPERATIVO COOPCENTRAL  SIGLA: COOPCENTRAL",
+  "acronym": "COOPCENTRAL",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834379"
+  },
+  "type": "1",
+  "code": "59",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO SANTANDER COLOMBIA S.A. (EN ADELANTE, EL \"BANCO\").",
+  "acronym": "BANCO SANTANDER COLOMBIA S.A. (EN ADELANTE, EL \"BANCO\").",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183437a"
+  },
+  "type": "1",
+  "code": "60",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "\"BANCO MUNDO MUJER S.A.\"  DENOMINACIÓN DE \"MUNDO MUJER EL BANCO DE LA COMUNIDAD\" O \"MUNDO MUJER\"",
+  "acronym": "BANCO MUNDO MUJER S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183437b"
+  },
+  "type": "1",
+  "code": "62",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO DE LA MICROEMPRESA DE COLOMBIA S.A. SIGLA: \"MIBANCO S.A.\"",
+  "acronym": "MIBANCO S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183437c"
+  },
+  "type": "1",
+  "code": "63",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO SERFINANZA S.A., PODRÁ GIRAR TAMBIÉN CON LA DENOMINACIÓN SOCIAL BANCO SERFINANZA",
+  "acronym": "BANCO SERFINANZA S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183437d"
+  },
+  "type": "1",
+  "code": "64",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO J.P. MORGAN COLOMBIA S.A., (LA \"SOCIEDAD\")",
+  "acronym": "BANCO J.P. MORGAN COLOMBIA S.A., (LA \"SOCIEDAD\")",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.815Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183437e"
+  },
+  "type": "1",
+  "code": "65",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "LULO BANK S.A.",
+  "acronym": "LULO BANK S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183437f"
+  },
+  "type": "1",
+  "code": "66",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "BANCO BTG PACTUAL COLOMBIA S.A.",
+  "acronym": "BANCO BTG PACTUAL COLOMBIA S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834380"
+  },
+  "type": "1",
+  "code": "67",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO UNIÓN S.A. (EN ADELANTE EL \"BANCO\" O LA \"SOCIEDAD\")",
+  "acronym": "BANCO UNIÓN S.A. (EN ADELANTE EL \"BANCO\" O LA \"SOCIEDAD\")",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834381"
+  },
+  "type": "1",
+  "code": "68",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCO CONTACTAR S.A.",
+  "acronym": "BANCO CONTACTAR S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834382"
+  },
+  "type": "4",
+  "code": "26",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "COMPAÑÍA DE FINANCIAMIENTO TUYA S.A.  SIGLAS: TUYA S.A. O TUYA O TU - YA S.A. O TU - YA O TÚ-YA S.A O TÚ - YA",
+  "acronym": "TUYA",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834383"
+  },
+  "type": "4",
+  "code": "31",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "GM FINANCIAL COLOMBIA S.A. COMPAÑÍA DE FINANCIAMIENTO",
+  "acronym": "GM FINANCIAL COLOMBIA S.A. COMPAÑÍA DE FINANCIAMIENTO",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834384"
+  },
+  "type": "4",
+  "code": "46",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "COLTEFINANCIERA S.A. COMPAÑÍA DE FINANCIAMIENTO",
+  "acronym": "COLTEFINANCIERA",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834385"
+  },
+  "type": "4",
+  "code": "108",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "IRIS CF - COMPAÑÍA DE FINANCIAMIENTO S.A.",
+  "acronym": "IRIS CF.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834386"
+  },
+  "type": "4",
+  "code": "117",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "CREDIFAMILIA COMPAÑÍA DE FINANCIAMIENTO S.A.",
+  "acronym": "CREDIFAMILIA",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834387"
+  },
+  "type": "4",
+  "code": "118",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "CREZCAMOS S.A. COMPAÑÍA DE FINANCIAMIENTO, PUDIENDO UTILIZAR LAS SIGLAS CREZCAMOS",
+  "acronym": "CREZCAMOS",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834388"
+  },
+  "type": "4",
+  "code": "120",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "LA HIPOTECARIA COMPAÑÍA DE FINANCIAMIENTO S.A.",
+  "acronym": "LA HIPOTECARIA",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834389"
+  },
+  "type": "4",
+  "code": "121",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "FINANCIERA JURISCOOP S.A. COMPAÑÍA DE FINANCIAMIENTO",
+  "acronym": "FINANCIERA JURISCOOP C.F.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183438a"
+  },
+  "type": "4",
+  "code": "122",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "RCI COLOMBIA S.A. COMPAÑÍA DE FINANCIAMIENTO",
+  "acronym": "RCI COLOMBIA S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183438b"
+  },
+  "type": "4",
+  "code": "123",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BANCAR TECNOLOGÍA CO S.A. COMPAÑÍA DE FINANCIAMIENTO",
+  "acronym": "BANCAR TECNOLOGÍA CO S.A. COMPAÑÍA DE FINANCIAMIENTO",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183438c"
+  },
+  "type": "4",
+  "code": "124",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "RAPPIPAY COMPAÑÍA DE FINANCIAMIENTO S.A., (LA \"SOCIEDAD\")",
+  "acronym": "\"RAPPIPAY\"",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183438d"
+  },
+  "type": "4",
+  "code": "126",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "MERCADOPAGO S.A. COMPAÑÍA DE FINANCIAMIENTO, PUDIENDO IDENTIFICARSE BAJO LAS SIGLAS MERCADDOPAGO. COMPAÑÍA DE FINANCIAMIENTO O MERCADOPAGO FINANCIERA  (EN ADELANTE LA \"SOCIEDAD\")",
+  "acronym": "MERCADDOPAGO. COMPAÑÍA DE FINANCIAMIENTO O MERCADOPAGO FINANCIERA",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183438e"
+  },
+  "type": "4",
+  "code": "127",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "BOLD CF COMPAÑÍA DE FINANCIAMIENTO S.A. (EN ADELANTE SE DENOMINARÁ LA \"COMPAÑÍA\") Y PODRÁ UTILIZAR CUALQUIERA DE LAS SIGUIENTES SIGLAS \"BOLD C.F.\", \"BOLD CF S.A.\", O \"BOLD. CF\"",
+  "acronym": "\"BOLD C.F.\", \"BOLD CF S.A.\", O \"BOLD. CF\"",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d183438f"
+  },
+  "type": "4",
+  "code": "128",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "NU COLOMBIA COMPAÑÍA DE FINANCIAMIENTO S.A.,PUDIENDO IDENTIFICARSE BAJO LAS SIGLAS NU O NU FINANCIERA (EN ADELANTE LA \"SOCIEDAD\" O \"NU FINANCIERA\")",
+  "acronym": "NU COLOMBIA COMPAÑÍA DE FINANCIAMIENTO S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834390"
+  },
+  "type": "4",
+  "code": "129",
+  "competentDelegation": "Delegatura para Intermediarios Financieros",
+  "socialDenomination": "KOA COMPAÑIA DE FINANCIAMIENTO S.A. (EN ADELANTE, LA  \"SOCIEDAD\"), USARA LA SIGLA \"KOA CF\"",
+  "acronym": "\"KOA CF\"",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+},
+{
+  "_id": {
+    "$oid": "69cdb6341d21cdf4d1834391"
+  },
+  "type": "4",
+  "code": "130",
+  "competentDelegation": "Delegatura para Conglomerados Financieros",
+  "socialDenomination": "NEQUI S.A. COMPAÑÍA DE FINANCIAMIENTO (EN ADELANTE LA \"SOCIEDAD\"), PODRÁ GIRAR TAMBIÉN CON LA DENOMINACIÓN SOCIAL NEQUI S.A., PUDIENDO IDENTIFICAR SUS ESTABLECIMIENTOS DE COMERCIO, PRODUCTOS Y SERVICIOSCON EL NOMBRE COMERCIAL DE NEQUI",
+  "acronym": "NEQUI S.A.",
+  "isActive": true,
+  "__v": 0,
+  "createdAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  },
+  "updatedAt": {
+    "$date": "2026-04-02T00:20:04.816Z"
+  }
+}]

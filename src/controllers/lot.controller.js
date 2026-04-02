@@ -63,10 +63,45 @@ export const getLots = async (req, res, next) => {
     }
 
     const total = await Lot.countDocuments(query);
-    const lots = await Lot.find(query)
+    let lots = await Lot.find(query)
       .sort(sortObj)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .populate({
+        path: 'sellerId',
+        populate: { path: 'accountId', select: 'fullName' },
+      });
+
+    // Handle existing sold lots that don't have sellerId stored yet
+    const soldLotsWithoutSeller = lots
+      .filter((l) => l.status === 'vendido' && !l.sellerId)
+      .map((l) => l._id);
+
+    if (soldLotsWithoutSeller.length > 0) {
+      const contracts = await Contract.find({ lot: { $in: soldLotsWithoutSeller } })
+        .populate({
+          path: 'sellerId',
+          populate: { path: 'accountId', select: 'fullName' },
+        });
+
+      const lotSellerMap = {};
+      contracts.forEach((c) => {
+        if (c.sellerId) {
+          lotSellerMap[c.lot.toString()] = c.sellerId;
+        }
+      });
+
+      // Map back to lots
+      lots = lots.map((l) => {
+        const lotIdStr = l._id.toString();
+        if (lotSellerMap[lotIdStr]) {
+          const lotObj = l.toObject();
+          lotObj.sellerId = lotSellerMap[lotIdStr];
+          return lotObj;
+        }
+        return l;
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -249,6 +284,7 @@ export const sellLot = async (req, res, next) => {
       contractDate,
       startDate,
       negotiation = 'Venta Directa',
+      sellerId,
     } = req.body;
 
     const lot = await Lot.findById(id);
@@ -299,11 +335,13 @@ export const sellLot = async (req, res, next) => {
       contractDate: contractDate || new Date(),
       startDate: startDate || new Date(),
       negotiation,
+      sellerId: sellerId || null,
       status: 'ACTIVO',
     });
 
     // 4. Mark Lot as Sold
     lot.status = 'vendido';
+    if (sellerId) lot.sellerId = sellerId;
     await lot.save();
 
     // 5. Generate Quotas with precise rounding and proper due dates
@@ -388,3 +426,66 @@ export const sellLot = async (req, res, next) => {
   }
 };
 
+/**
+ * Gets the sale/contract details for a specific lot.
+ */
+export const getLotSaleDetail = async (req, res, next) => {
+  try {
+    const { id } = req.params; // lotId
+    const { id: tenantId, companyId } = req.tenant; 
+
+    const contract = await Contract.findOne({ lot: id, companyId, tenantId })
+      .populate({
+        path: 'client',
+        select: 'name idNumber phone address email',
+      })
+      .populate({
+        path: 'sellerId',
+        populate: { path: 'accountId', select: 'fullName email' },
+      })
+      .populate({
+        path: 'lot',
+        select: 'sellerId',
+        populate: {
+          path: 'sellerId',
+          populate: { path: 'accountId', select: 'fullName email' },
+        },
+      });
+
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: 'No se encontró un contrato para este lote',
+      });
+    }
+
+    // Fallback: if contract doesn't have sellerId, take it from lot
+    if (!contract.sellerId && contract.lot?.sellerId) {
+      const contractObj = contract.toObject();
+      contractObj.sellerId = contract.lot.sellerId;
+      // Replace contract with the object containing the fallback seller
+      res.status(200).json({
+        success: true,
+        data: {
+          contract: contractObj,
+          quotas: await Quota.find({ contract: contract._id }).sort({ type: 1, number: 1 }),
+        },
+      });
+      return;
+    }
+
+    // Get quotas for this contract
+    const quotas = await Quota.find({ contract: contract._id })
+      .sort({ type: 1, number: 1 });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        contract,
+        quotas,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

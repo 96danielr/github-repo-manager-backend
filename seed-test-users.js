@@ -1,27 +1,48 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import UserAccount from './src/models/UserAccount.js';
 import User from './src/models/User.js';
 import Tenant from './src/models/Tenant.js';
 import Company from './src/models/Company.js';
+import Bank from './src/models/Bank.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const seedTestData = async () => {
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log('Connected to MongoDB');
+    const mongoUri = process.env.MONGODB_URI;
+    if (!mongoUri) {
+      throw new Error('MONGODB_URI is not defined in .env');
+    }
 
-    // 0. Clean database
+    await mongoose.connect(mongoUri);
+    console.log('✅ Connected to MongoDB');
+
+    // 0. Clean database (except Banks, we'll upsert them)
     await Promise.all([
       UserAccount.deleteMany({}),
       User.deleteMany({}),
       Tenant.deleteMany({}),
       Company.deleteMany({}),
     ]);
-    console.log('✅ Database cleaned');
+    console.log('✅ Base Database cleaned');
 
     // Sync indexes
     await User.syncIndexes();
     await UserAccount.syncIndexes();
+    
+    // Crucial: drop old indexes for Bank if we changed uniqueness (e.g. 'code')
+    try {
+      await Bank.collection.dropIndexes();
+      console.log('✅ Bank indexes dropped for sync');
+    } catch (e) {
+      // Ignore if collection doesn't exist
+    }
+    await Bank.syncIndexes();
 
     // 1. Create a "Platform" / "System" Tenant for the Superadmin
     const systemTenant = await Tenant.create({
@@ -71,7 +92,7 @@ const seedTestData = async () => {
     });
     console.log(`✅ Admin account created: ${adminAccount.email}`);
 
-    const adminMembership = await User.create({
+    await User.create({
       accountId: adminAccount._id,
       tenantId: alicanteTenant._id,
       role: 'tenant_admin',
@@ -99,11 +120,33 @@ const seedTestData = async () => {
     console.log('Agent (Alicante):        agente@cobra.com / 12345678');
     console.log('-------------------------------\n');
 
+    // --- BANK SEEDING ---
+    console.log('⏳ Seeding global banks...');
+    const dataPath = path.join(__dirname, 'src', 'data', 'banks.json');
+    if (fs.existsSync(dataPath)) {
+      const rawData = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
+      const operations = rawData.map((bank) => {
+        // eslint-disable-next-line no-unused-vars
+        const { _id, createdAt, updatedAt, __v, ...rest } = bank;
+        return {
+          updateOne: {
+            filter: { acronym: bank.acronym },
+            update: { $set: rest },
+            upsert: true,
+          },
+        };
+      });
+      await Bank.bulkWrite(operations);
+      console.log(`✅ Seeded ${rawData.length} banks from JSON`);
+    } else {
+      console.log('⚠️ No banks.json found at src/data/, skipping bank seed.');
+    }
+
     await mongoose.disconnect();
     console.log('Seed finished successfully!');
     process.exit(0);
   } catch (error) {
-    console.error('Seed error:', error.message);
+    console.error('❌ Seed error:', error.message);
     process.exit(1);
   }
 };

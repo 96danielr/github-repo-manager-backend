@@ -34,7 +34,7 @@ export const getAllUsers = async (req, res, next) => {
       .sort({ createdAt: -1 });
 
     // Filter out memberships where account wasn't found (due to search mismatch)
-    memberships = memberships.filter(m => m.accountId !== null);
+    memberships = memberships.filter((m) => m.accountId !== null);
 
     const total = memberships.length;
     const paginatedMemberships = memberships.slice(skip, skip + limitNum);
@@ -60,8 +60,62 @@ export const getAllUsers = async (req, res, next) => {
           page: pageNum,
           limit: limitNum,
           pages: Math.ceil(total / limitNum),
-        }
+        },
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get all users with 'vendedor' role within the current tenant.
+ */
+export const getSellers = async (req, res, next) => {
+  try {
+    const { id: tenantId } = req.tenant;
+    const { companyId } = req.query; // If provided, filter by company
+
+    let query = { 
+      tenantId, 
+      role: 'vendedor',
+      status: 'active',
+    };
+
+    let memberships;
+    // If companyId is provided AND user is not a tenant/super admin, filter by company
+    // If they ARE tenant/super admin, they should see all sellers of the tenant anyway
+    if (companyId && !req.tenant.isTenantAdmin) {
+      // Find memberships linked to this company
+      const companyMemberships = await UserCompany.find({ companyId, tenantId })
+        .populate({
+          path: 'userId',
+          match: { role: 'vendedor', status: 'active' },
+          populate: { path: 'accountId', select: 'fullName email' },
+        });
+      
+      memberships = companyMemberships
+        .filter((cm) => cm.userId !== null)
+        .map((cm) => cm.userId);
+    } else {
+      memberships = await User.find(query)
+        .populate({
+          path: 'accountId',
+          select: 'email fullName',
+        });
+    }
+
+    const sellers = memberships
+      .filter((m) => m.accountId !== null)
+      .map((m) => ({
+        id: m._id,
+        fullName: m.accountId.fullName,
+        email: m.accountId.email,
+      }));
+
+    res.json({
+      success: true,
+      data: sellers,
     });
   } catch (error) {
     next(error);
@@ -75,10 +129,18 @@ export const getAllUsers = async (req, res, next) => {
  */
 export const createUser = async (req, res, next) => {
   try {
-    const { fullName, email, password, role, companyIds } = req.body;
+    const { fullName, email, password, role } = req.body;
+    let { companyIds, companyId } = req.body;
     const { id: tenantId } = req.tenant;
 
-    const validRoles = ['tenant_admin', 'company_admin', 'agent'];
+    // Support both companyIds (array) and companyId (singular string)
+    if (!companyIds && companyId) {
+      companyIds = [companyId];
+    } else if (!companyIds) {
+      companyIds = [];
+    }
+
+    const validRoles = ['tenant_admin', 'company_admin', 'agent', 'vendedor'];
     if (!validRoles.includes(role)) {
       return next(new AppError(`Invalid role. Must be one of: ${validRoles.join(', ')}`, 400));
     }
@@ -168,6 +230,31 @@ export const updateUser = async (req, res, next) => {
     if (role) membership.role = role;
     if (status) membership.status = status;
     await membership.save();
+
+    // Handle company assignments if provided
+    let { companyIds, companyId } = req.body;
+    if (!companyIds && companyId) companyIds = [companyId];
+    
+    if (companyIds && companyIds.length > 0 && membership.role !== 'tenant_admin') {
+      // For each companyId, check if assignment already exists
+      // If not, create it
+      for (const targetCompanyId of companyIds) {
+        const existingAssignment = await UserCompany.findOne({
+          userId: membership._id,
+          companyId: targetCompanyId,
+          tenantId,
+        });
+
+        if (!existingAssignment) {
+          await UserCompany.create({
+            userId: membership._id,
+            companyId: targetCompanyId,
+            tenantId,
+            role: membership.role,
+          });
+        }
+      }
+    }
 
     // Update fullName on the account if provided
     if (fullName && membership.accountId) {

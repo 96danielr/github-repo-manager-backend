@@ -39,6 +39,11 @@ const lotSchema = new mongoose.Schema({
     enum: ['disponible', 'vendido'],
     default: 'disponible',
   },
+  sellerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false,
+  },
   excelRowId: Number,
 }, { timestamps: true });
 
