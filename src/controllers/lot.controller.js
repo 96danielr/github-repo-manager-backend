@@ -6,7 +6,11 @@ import { uploadToR2 } from '../utils/storage.js';
 
 export const createLot = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { id: tenantId, companyId, role } = req.tenant;
+
+    if (role === 'vendedor') {
+      return res.status(403).json({ success: false, message: 'No tienes permiso para crear lotes' });
+    }
 
     const { 
       stage, 
@@ -43,7 +47,7 @@ export const createLot = async (req, res, next) => {
 
 export const getLots = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { id: tenantId, companyId, role, userId } = req.tenant;
     const { page = 1, limit = 10, search, sortBy, order } = req.query;
     const skip = (page - 1) * limit;
 
@@ -54,12 +58,32 @@ export const getLots = async (req, res, next) => {
     }
 
     let query = { tenantId, companyId };
-    if (search) {
+
+    // If seller role, show:
+    // 1. All available lots (to be sold)
+    // 2. Lots sold by THEM
+    if (role === 'vendedor') {
       query.$or = [
-        { stage: { $regex: search, $options: 'i' } },
-        { nomenclature: { $regex: search, $options: 'i' } },
-        { lotNumber: { $regex: search, $options: 'i' } },
+        { status: 'disponible' },
+        { sellerId: userId },
       ];
+    }
+
+    if (search) {
+      const searchFilter = {
+        $or: [
+          { stage: { $regex: search, $options: 'i' } },
+          { nomenclature: { $regex: search, $options: 'i' } },
+          { lotNumber: { $regex: search, $options: 'i' } },
+        ],
+      };
+      
+      // If we already have a $or from the role check, combine with $and
+      if (query.$or) {
+        query = { $and: [query, searchFilter] };
+      } else {
+        query.$or = searchFilter.$or;
+      }
     }
 
     const total = await Lot.countDocuments(query);
@@ -142,6 +166,10 @@ export const getLot = async (req, res, next) => {
 
 export const updateLot = async (req, res, next) => {
   try {
+    const { role } = req.tenant;
+    if (role === 'vendedor') {
+      return res.status(403).json({ success: false, message: 'No tienes permiso para editar lotes' });
+    }
     const { 
       stage, 
       nomenclature, 
@@ -187,6 +215,10 @@ export const updateLot = async (req, res, next) => {
 
 export const deleteLot = async (req, res, next) => {
   try {
+    const { role } = req.tenant;
+    if (role === 'vendedor') {
+      return res.status(403).json({ success: false, message: 'No tienes permiso para eliminar lotes' });
+    }
     const lot = await Lot.findByIdAndDelete(req.params.id);
 
     if (!lot) {
@@ -207,6 +239,10 @@ export const deleteLot = async (req, res, next) => {
 
 export const uploadLotImages = async (req, res, next) => {
   try {
+    const { role } = req.tenant;
+    if (role === 'vendedor') {
+      return res.status(403).json({ success: false, message: 'No tienes permiso para subir imágenes' });
+    }
     const { id } = req.params;
     const files = req.files;
 
@@ -273,7 +309,7 @@ export const getLotsPublic = async (req, res, next) => {
 export const sellLot = async (req, res, next) => {
   try {
     const { id } = req.params; // lotId
-    const { id: tenantId, companyId } = req.tenant;
+    const { id: tenantId, companyId, role, userId } = req.tenant;
     const { 
       clientId, 
       clientData, 
@@ -286,6 +322,8 @@ export const sellLot = async (req, res, next) => {
       negotiation = 'Venta Directa',
       sellerId,
     } = req.body;
+
+    const effectiveSellerId = sellerId || (role === 'vendedor' ? userId : null);
 
     const lot = await Lot.findById(id);
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
@@ -330,18 +368,20 @@ export const sellLot = async (req, res, next) => {
       client: client._id,
       lot: lot._id,
       totalValue: finalTotalValue,
+      initialQuotaPercentage: parseFloat(initialQuotaPercentage) || 0,
+      initialQuotasCount: parseInt(initialQuotasCount) || 1,
       installmentsCount: installmentsCountParsed,
       installmentValue: installmentValueEstimate,
       contractDate: contractDate || new Date(),
       startDate: startDate || new Date(),
       negotiation,
-      sellerId: sellerId || null,
+      sellerId: effectiveSellerId,
       status: 'ACTIVO',
     });
 
     // 4. Mark Lot as Sold
     lot.status = 'vendido';
-    if (sellerId) lot.sellerId = sellerId;
+    if (effectiveSellerId) lot.sellerId = effectiveSellerId;
     await lot.save();
 
     // 5. Generate Quotas with precise rounding and proper due dates
@@ -435,6 +475,7 @@ export const getLotSaleDetail = async (req, res, next) => {
     const { id: tenantId, companyId } = req.tenant; 
 
     const contract = await Contract.findOne({ lot: id, companyId, tenantId })
+      .sort({ createdAt: -1 })
       .populate({
         path: 'client',
         select: 'name idNumber phone address email',

@@ -26,9 +26,19 @@ const clientSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true,
+  },
   behavior: {
     type: String,
     trim: true,
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: false,
   },
   excelRowId: Number,
 }, { timestamps: true });

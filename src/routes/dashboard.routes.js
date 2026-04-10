@@ -1,5 +1,4 @@
 import express from 'express';
-import Client from '../models/Client.js';
 import Contract from '../models/Contract.js';
 import User from '../models/User.js';
 import { protect } from '../middleware/auth.js';
@@ -14,13 +13,18 @@ router.use(tenantMiddleware);
 // Dashboard summary — company-scoped
 router.get('/summary', companyMiddleware, async (req, res) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { id: tenantId, companyId, role, userId } = req.tenant;
 
-    const totalClientsCount = await Client.countDocuments({ tenantId, companyId });
+    const baseMatch = { tenantId, companyId };
+    if (role === 'vendedor') {
+      baseMatch.sellerId = userId;
+    }
+
+    const totalClientsCount = await Contract.distinct('client', baseMatch).then((clients) => clients.length);
 
     // Calculate Portfolio / Project Stats
     const stats = await Contract.aggregate([
-      { $match: { tenantId, companyId } },
+      { $match: baseMatch },
       {
         $lookup: {
           from: 'quotas',
@@ -63,13 +67,16 @@ router.get('/summary', companyMiddleware, async (req, res) => {
       ? (result.totalRecaudado / result.valorTotalCartera) * 100 
       : 0;
 
+    const totalSalesCount = await Contract.countDocuments(baseMatch);
     const teamMembersCount = await User.countDocuments({ tenantId, status: 'active' });
 
     res.json({
       success: true,
       data: {
         totalClients: totalClientsCount,
+        totalSales: totalSalesCount,
         teamMembers: teamMembersCount,
+        isSeller: role === 'vendedor',
         cartera: {
           valorTotalCartera: result.valorTotalCartera,
           totalRecaudado: result.totalRecaudado,
@@ -77,7 +84,7 @@ router.get('/summary', companyMiddleware, async (req, res) => {
           porcentajeRecaudo,
         },
         mora: {
-          totalContratosActivos: 0,
+          totalContratosActivos: totalSalesCount,
           contratosAlDia: 0,
           contratosMora1a15: 0,
           contratosMora16a30: 0,

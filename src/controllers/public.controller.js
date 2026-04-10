@@ -4,6 +4,51 @@ import Contract from '../models/Contract.js';
 import Quota from '../models/Quota.js';
 import AppError from '../utils/AppError.js';
 import { uploadToR2 } from '../utils/storage.js';
+import { generateReceiptStream } from '../utils/receipt.js';
+
+/**
+ * Generate a dynamic PDF receipt for a paid quota (Public endpoint)
+ */
+export const getReceiptPDF = async (req, res, next) => {
+  try {
+    const { quotaId } = req.params;
+
+    const quota = await Quota.findById(quotaId)
+      .populate({
+        path: 'contract',
+        populate: [
+          { path: 'client' },
+          { path: 'lot' },
+        ],
+      });
+
+    if (!quota) {
+      return next(new AppError('Cuota no encontrada', 404));
+    }
+
+    if (quota.status !== 'pagado') {
+      return next(new AppError('El recibo solo está disponible para cuotas pagadas', 400));
+    }
+
+    const company = await Company.findById(quota.companyId);
+
+    const receiptData = {
+      quotaNumber: quota.number,
+      amount: quota.amountPaid || quota.value,
+      date: quota.paymentDate || quota.updatedAt,
+      clientName: quota.contract.client.name,
+      clientId: quota.contract.client.idNumber,
+      companyName: company?.name || 'Inmobiliaria',
+      lotInfo: `Lote ${quota.contract.lot?.lotNumber || ''} - ${quota.contract.lot?.stage || ''}`,
+      paymentBank: quota.paymentBank,
+      observations: quota.paymentObservations,
+    };
+
+    await generateReceiptStream(receiptData, res);
+  } catch (error) {
+    next(error);
+  }
+};
 
 /**
  * Get client information and their lot contracts with pending quotas

@@ -20,7 +20,7 @@ export const companyMiddleware = async (req, res, next) => {
       return next(new AppError('Company ID is required', 400));
     }
 
-    const { id: tenantId, isTenantAdmin } = req.tenant;
+    const { id: tenantId, isTenantAdmin, userId } = req.tenant;
 
     // Verify company exists and belongs to this tenant
     const company = await Company.findOne({
@@ -40,9 +40,16 @@ export const companyMiddleware = async (req, res, next) => {
       return next();
     }
 
-    // For other roles, verify user_company assignment
+    // Public/Guest access (e.g. public payment reporting)
+    if (!userId) {
+      req.tenant.companyId = company._id;
+      req.tenant.companyRole = 'guest';
+      return next();
+    }
+
+    // For other logged-in roles, verify user_company assignment
     const userCompany = await UserCompany.findOne({
-      userId: req.tenant.userId,
+      userId: userId,
       companyId: company._id,
       tenantId: tenantId,
     });

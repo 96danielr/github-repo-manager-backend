@@ -1,6 +1,7 @@
 import UserAccount from '../models/UserAccount.js';
 import User from '../models/User.js';
 import UserCompany from '../models/UserCompany.js';
+import { sendSMS, sendEmail } from '../utils/notifications.js';
 import AppError from '../utils/AppError.js';
 
 /**
@@ -354,3 +355,4 @@ export const deleteUser = async (req, res, next) => {
     next(error);
   }
 };
+

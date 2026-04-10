@@ -17,7 +17,7 @@ router.use(tenantMiddleware);
 // Company-scoped: GET /clients?companyId=xxx
 router.get('/', companyMiddleware, async (req, res) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { id: tenantId, companyId, role, userId } = req.tenant;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -38,13 +38,32 @@ router.get('/', companyMiddleware, async (req, res) => {
       tenantId: new mongoose.Types.ObjectId(tenantId), 
       companyId: new mongoose.Types.ObjectId(companyId), 
     };
+
+    if (role === 'vendedor') {
+      const sellerClients = await Contract.find({ tenantId, companyId, sellerId: userId }).distinct('client');
+      matchQuery.$or = [
+        { _id: { $in: sellerClients } },
+        { createdBy: new mongoose.Types.ObjectId(userId) },
+      ];
+    }
     
     if (search) {
-      matchQuery.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { idNumber: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-      ];
+      const searchFilter = {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { idNumber: { $regex: search, $options: 'i' } },
+          { phone: { $regex: search, $options: 'i' } },
+        ],
+      };
+
+      if (matchQuery.$or) {
+        // If we already have a role filter, wrap in $and
+        const roleFilter = { $or: matchQuery.$or };
+        delete matchQuery.$or;
+        matchQuery.$and = [roleFilter, searchFilter];
+      } else {
+        matchQuery.$or = searchFilter.$or;
+      }
     }
 
     if (behaviorFilter && behaviorFilter !== 'ALL') {
@@ -179,10 +198,18 @@ router.get('/', companyMiddleware, async (req, res) => {
 // GET /clients/:id - Detail with contracts
 router.get('/:id', companyMiddleware, async (req, res) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { id: tenantId, companyId, role, userId } = req.tenant;
     const { id } = req.params;
 
-    const client = await Client.findOne({ _id: id, tenantId, companyId });
+    const query = { _id: id, tenantId, companyId };
+    if (role === 'vendedor') {
+      const hasContract = await Contract.exists({ client: id, sellerId: userId, tenantId, companyId });
+      if (!hasContract) {
+        return res.status(403).json({ success: false, message: 'No tienes permiso para ver este cliente' });
+      }
+    }
+
+    const client = await Client.findOne(query);
     if (!client) {
       return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
     }
@@ -225,6 +252,7 @@ router.get('/:id', companyMiddleware, async (req, res) => {
 
       return {
         ...contract.toObject(),
+        initialQuotaPercentage: contract.initialQuotaPercentage || (contract.totalValue > 0 ? (valorTotalInicial / contract.totalValue) * 100 : 0),
         totalPagado,
         valorTotalInicial,
         valorPagadoInicial,
@@ -260,7 +288,7 @@ router.get('/:id', companyMiddleware, async (req, res) => {
 // POST /clients - Manual creation
 router.post('/', companyMiddleware, async (req, res) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { id: tenantId, companyId, userId } = req.tenant;
     const { name, idNumber, phone, email, address, behavior } = req.body;
 
     if (!name || !idNumber) {
@@ -282,6 +310,7 @@ router.post('/', companyMiddleware, async (req, res) => {
       behavior: behavior || 'INDECISO',
       tenantId,
       companyId,
+      createdBy: userId,
     });
 
     res.status(201).json({ success: true, data: client });

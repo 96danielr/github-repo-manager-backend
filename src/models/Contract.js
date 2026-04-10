@@ -32,6 +32,8 @@ const contractSchema = new mongoose.Schema({
   negotiation: String, 
   appendix: String,
   totalValue: Number,
+  initialQuotaPercentage: Number,
+  initialQuotasCount: Number,
   installmentsCount: Number,
   installmentValue: Number,
   paymentDay: Number,

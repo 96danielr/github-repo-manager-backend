@@ -8,16 +8,29 @@ import Tenant from '../models/Tenant.js';
  */
 export const tenantMiddleware = async (req, res, next) => {
   try {
-    const { tenantId, role, userId } = req.user;
+    const user = req.user || {};
+    let targetTenantId = user.tenantId;
 
-    // Check for tenant override if superadmin
-    let targetTenantId = tenantId;
-    
-    if (role === 'superadmin') {
-      // Look for tenantId in query or body (frontend might send it as companyId)
-      const overrideId = req.query.tenantId || req.body.tenantId || req.query.companyId || req.body.companyId;
-      if (overrideId) {
-        targetTenantId = overrideId;
+    // Support public access via companyId or tenantId overlap
+    const cid = req.query.companyId || req.body.companyId;
+    const tid = req.query.tenantId || req.body.tenantId;
+
+    if (!user.role && (cid || tid)) {
+      if (tid) {
+        targetTenantId = tid;
+      } else if (cid) {
+        // Resolve tenant from company
+        const { default: Company } = await import('../models/Company.js');
+        const company = await Company.findById(cid);
+        if (company) targetTenantId = company.tenantId;
+      }
+    } else if (user.role === 'superadmin' && (cid || tid)) {
+      // Superadmin override
+      targetTenantId = tid || targetTenantId;
+      if (cid && !tid) {
+        const { default: Company } = await import('../models/Company.js');
+        const company = await Company.findById(cid);
+        if (company) targetTenantId = company.tenantId;
       }
     }
 
@@ -31,7 +44,7 @@ export const tenantMiddleware = async (req, res, next) => {
       return next(new AppError('Tenant not found', 404));
     }
 
-    if (tenant.status === 'suspended' && role !== 'superadmin') {
+    if (tenant.status === 'suspended' && user.role !== 'superadmin') {
       return next(new AppError('Tenant account is suspended', 403));
     }
 
@@ -40,9 +53,9 @@ export const tenantMiddleware = async (req, res, next) => {
       name: tenant.name,
       plan: tenant.plan,
       status: tenant.status,
-      role: role,       // user's role
-      userId: userId,   // user's membership ID
-      isTenantAdmin: role === 'tenant_admin' || role === 'superadmin',
+      role: user.role,      // user's role
+      userId: user.userId,  // user's membership ID
+      isTenantAdmin: user.role === 'tenant_admin' || user.role === 'superadmin',
     };
 
     next();

@@ -28,8 +28,17 @@ const bankSchema = new mongoose.Schema({
   acronym: {
     type: String,
     trim: true,
-    unique: true, // Acronym (SIGLA) is the unique identifier for UI and business logic
     required: true,
+  },
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    index: true,
+  },
+  companyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+    index: true,
   },
   isActive: {
     type: Boolean,
@@ -39,5 +48,6 @@ const bankSchema = new mongoose.Schema({
 
 // Index for performance
 bankSchema.index({ socialDenomination: 1 });
+bankSchema.index({ tenantId: 1, companyId: 1, acronym: 1 }, { unique: true, partialFilterExpression: { tenantId: { $exists: true } } });
 
 export default mongoose.model('Bank', bankSchema);

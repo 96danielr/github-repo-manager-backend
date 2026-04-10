@@ -36,6 +36,7 @@ const quotaSchema = new mongoose.Schema({
   paymentDate: Date,
   paymentObservations: String,
   amountPaid: Number,
+  receiptUrl: String,
   excelRowId: Number,
 }, { timestamps: true });
 
