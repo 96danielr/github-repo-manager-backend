@@ -33,8 +33,8 @@ export const tenantMiddleware = async (req, res, next) => {
           targetTenantId = company.tenantId;
         } else {
           // If cid is not a company, check if it's a tenant
-          const tenant = await Tenant.findById(cid);
-          if (tenant) targetTenantId = tenant._id;
+          const tenantFound = await Tenant.findById(cid);
+          if (tenantFound) targetTenantId = tenantFound._id;
         }
       }
     }
