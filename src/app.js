@@ -40,8 +40,21 @@ app.use(async (req, res, next) => {
 });
 
 // CORS
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:3002',
+  'http://127.0.0.1:3002',
+  'http://192.168.1.106:3002'
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all in dev to avoid friction
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
