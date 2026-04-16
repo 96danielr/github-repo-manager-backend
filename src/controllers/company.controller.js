@@ -47,7 +47,12 @@ export const getCompany = async (req, res, next) => {
     const { id: tenantId } = req.tenant;
     const companyId = req.params.id;
 
-    const company = await Company.findOne({ _id: companyId, tenantId });
+    let company = await Company.findOne({ _id: companyId, tenantId });
+
+    // Fallback for superadmin: if they selected a tenant instead of a company
+    if (!company && req.user.role === 'superadmin') {
+      company = await Company.findOne({ tenantId }).sort({ createdAt: 1 });
+    }
 
     if (!company) {
       return next(new AppError('Company not found', 404));

@@ -28,9 +28,14 @@ export const tenantMiddleware = async (req, res, next) => {
       // Superadmin override
       targetTenantId = tid || targetTenantId;
       if (cid && !tid) {
-        const { default: Company } = await import('../models/Company.js');
-        const company = await Company.findById(cid);
-        if (company) targetTenantId = company.tenantId;
+        const company = await (await import('../models/Company.js')).default.findById(cid);
+        if (company) {
+          targetTenantId = company.tenantId;
+        } else {
+          // If cid is not a company, check if it's a tenant
+          const tenant = await Tenant.findById(cid);
+          if (tenant) targetTenantId = tenant._id;
+        }
       }
     }
 
