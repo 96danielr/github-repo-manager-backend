@@ -4,6 +4,7 @@ import Client from '../models/Client.js';
 import Company from '../models/Company.js';
 import AppError from '../utils/AppError.js';
 import { sendSMS, sendEmail } from '../utils/notifications.js';
+import { logAudit } from '../utils/auditLogger.js';
 
 /**
  * Get all quotas (payments) for a given company with server-side pagination and filtering.
@@ -238,6 +239,13 @@ export const approvePayment = async (req, res, next) => {
 
     await quota.save();
 
+    await logAudit(req, {
+      action: 'APPROVE_PAYMENT',
+      module: 'PAYMENTS',
+      targetId: quota._id,
+      details: { amount: quota.amountPaid || quota.value, cuotaNumber: quota.number }
+    });
+
     res.json({
       success: true,
       message: 'Cuota marcada como pagada exitosamente',
@@ -263,6 +271,13 @@ export const rejectPayment = async (req, res, next) => {
     // Revert to pendiente
     quota.status = 'pendiente';
     await quota.save();
+
+    await logAudit(req, {
+      action: 'REJECT_PAYMENT',
+      module: 'PAYMENTS',
+      targetId: quota._id,
+      details: { cuotaNumber: quota.number }
+    });
 
     res.json({
       success: true,
@@ -365,6 +380,17 @@ export const registerManualPayment = async (req, res, next) => {
     } catch (error) {
       console.error('Error in admin receipt/SMS flow:', error);
     }
+
+    await logAudit(req, {
+      action: 'REGISTER_MANUAL_PAYMENT',
+      module: 'PAYMENTS',
+      targetId: quota._id,
+      details: { 
+        amount: quota.amountPaid, 
+        bank, 
+        cuotaNumber: quota.number
+      }
+    });
 
     res.json({
       success: true,

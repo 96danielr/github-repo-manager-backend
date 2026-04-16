@@ -1,6 +1,8 @@
 import UserAccount from '../models/UserAccount.js';
 import User from '../models/User.js';
 import UserCompany from '../models/UserCompany.js';
+import { uploadToR2, deleteFromR2 } from '../utils/storage.js';
+import AuditLog from '../models/AuditLog.js';
 import { sendSMS, sendEmail } from '../utils/notifications.js';
 import AppError from '../utils/AppError.js';
 
@@ -350,6 +352,154 @@ export const deleteUser = async (req, res, next) => {
     res.json({
       success: true,
       message: 'User removed from team successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Superadmin: Get system audit logs
+ */
+export const getSystemLogs = async (req, res, next) => {
+  try {
+    const { page = 1, limit = 50, search, action, module, tenantId } = req.query;
+    
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    const query = {};
+    
+    if (tenantId) query.tenantId = tenantId;
+    if (action) query.action = action;
+    if (module) query.module = module;
+    
+    if (search) {
+      query.$or = [
+        { userFullName: { $regex: search, $options: 'i' } },
+        { userEmail: { $regex: search, $options: 'i' } },
+        { targetId: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const total = await AuditLog.countDocuments(query);
+    const logs = await AuditLog.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    res.json({
+      success: true,
+      data: {
+        logs,
+        pagination: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          pages: Math.ceil(total / limitNum),
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update current user's profile info (fullName).
+ */
+export const updateProfile = async (req, res, next) => {
+  try {
+    const { fullName } = req.body;
+    const { accountId } = req.user;
+
+    if (!fullName) {
+      return next(new AppError('Full name is required', 400));
+    }
+
+    const account = await UserAccount.findById(accountId);
+    if (!account) {
+      return next(new AppError('Account not found', 404));
+    }
+
+    account.fullName = fullName;
+    await account.save();
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: { fullName: account.fullName }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Change current user's password.
+ */
+export const changeMyPassword = async (req, res, next) => {
+  try {
+    const { password } = req.body;
+    const { accountId } = req.user;
+
+    if (!password || password.length < 8) {
+      return next(new AppError('Password must be at least 8 characters', 400));
+    }
+
+    const account = await UserAccount.findById(accountId);
+    if (!account) {
+      return next(new AppError('Account not found', 404));
+    }
+
+    account.passwordHash = password;
+    await account.save();
+
+    res.json({
+      success: true,
+      message: 'Password updated successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Upload profile photo for current user.
+ */
+export const uploadProfileImage = async (req, res, next) => {
+  try {
+    const { accountId } = req.user;
+    const file = req.file;
+
+    if (!file) {
+      return next(new AppError('Please provide an image', 400));
+    }
+
+    const account = await UserAccount.findById(accountId);
+    if (!account) {
+      return next(new AppError('Account not found', 404));
+    }
+
+    // Delete old image if exists
+    if (account.profileImage) {
+      try {
+        await deleteFromR2(account.profileImage);
+      } catch (err) {
+        console.error('Error deleting old profile image:', err);
+      }
+    }
+
+    // Upload new image
+    const imageUrl = await uploadToR2(file, `profiles/${accountId}`);
+    account.profileImage = imageUrl;
+    await account.save();
+
+    res.json({
+      success: true,
+      message: 'Profile photo uploaded successfully',
+      data: { profileImage: imageUrl }
     });
   } catch (error) {
     next(error);

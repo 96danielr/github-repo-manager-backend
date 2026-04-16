@@ -3,6 +3,7 @@ import Client from '../models/Client.js';
 import Contract from '../models/Contract.js';
 import Quota from '../models/Quota.js';
 import { uploadToR2 } from '../utils/storage.js';
+import { logAudit } from '../utils/auditLogger.js';
 
 export const createLot = async (req, res, next) => {
   try {
@@ -34,6 +35,13 @@ export const createLot = async (req, res, next) => {
       excelRowId,
       tenantId,
       companyId,
+    });
+
+    await logAudit(req, {
+      action: 'CREATE_LOT',
+      module: 'LOTS',
+      targetId: lot._id,
+      details: { stage, lotNumber, price }
     });
 
     res.status(201).json({
@@ -452,6 +460,18 @@ export const sellLot = async (req, res, next) => {
     if (quotas.length > 0) {
       await Quota.insertMany(quotas);
     }
+
+    await logAudit(req, {
+      action: 'SELL_LOT',
+      module: 'LOTS',
+      targetId: lot._id,
+      details: { 
+        clientId: client._id, 
+        totalValue: finalTotalValue, 
+        installments: installmentsCount,
+        contractId: contract._id
+      }
+    });
 
     res.status(200).json({
       success: true,

@@ -60,6 +60,7 @@ const buildUserResponse = (account, membership) => {
     id: account._id.toString(),
     email: account.email,
     fullName: account.fullName,
+    profileImage: account.profileImage,
     role: membership.role,
     tenantId: tenantObj?._id ? tenantObj._id.toString() : tenantObj.toString(),
     tenantName: tenantObj?.name || '',

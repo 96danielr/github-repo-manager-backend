@@ -5,6 +5,7 @@ import Contract from '../models/Contract.js';
 import { protect } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { companyMiddleware } from '../middleware/company.js';
+import { logAudit } from '../utils/auditLogger.js';
 
 import Quota from '../models/Quota.js';
 
@@ -313,6 +314,13 @@ router.post('/', companyMiddleware, async (req, res) => {
       createdBy: userId,
     });
 
+    await logAudit(req, {
+      action: 'CREATE_CLIENT',
+      module: 'CLIENTS',
+      targetId: client._id,
+      details: { name, idNumber }
+    });
+
     res.status(201).json({ success: true, data: client });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -329,6 +337,13 @@ router.delete('/:id', companyMiddleware, async (req, res) => {
     if (!result) {
       return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
     }
+
+    await logAudit(req, {
+      action: 'DELETE_CLIENT',
+      module: 'CLIENTS',
+      targetId: result._id,
+      details: { name: result.name }
+    });
 
     res.json({ success: true, message: 'Cliente eliminado correctamente' });
   } catch (error) {

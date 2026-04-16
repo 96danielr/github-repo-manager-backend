@@ -34,6 +34,10 @@ const userAccountSchema = new mongoose.Schema({
     default: 'user',
   },
   lastLogin: Date,
+  profileImage: {
+    type: String,
+    default: null,
+  },
 }, {
   timestamps: true,
 });
