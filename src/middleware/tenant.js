@@ -1,5 +1,6 @@
 import AppError from '../utils/AppError.js';
 import Tenant from '../models/Tenant.js';
+import Company from '../models/Company.js';
 
 /**
  * Tenant middleware — verifies the tenant from JWT is active.
@@ -20,7 +21,6 @@ export const tenantMiddleware = async (req, res, next) => {
         targetTenantId = tid;
       } else if (cid) {
         // Resolve tenant from company
-        const { default: Company } = await import('../models/Company.js');
         const company = await Company.findById(cid);
         if (company) targetTenantId = company.tenantId;
       }
@@ -28,7 +28,7 @@ export const tenantMiddleware = async (req, res, next) => {
       // Superadmin override
       targetTenantId = tid || targetTenantId;
       if (cid && !tid) {
-        const company = await (await import('../models/Company.js')).default.findById(cid);
+        const company = await Company.findById(cid);
         if (company) {
           targetTenantId = company.tenantId;
         } else {
