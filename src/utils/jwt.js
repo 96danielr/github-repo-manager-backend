@@ -30,19 +30,22 @@ export const verifyRefreshToken = (token) => {
 
 export const setTokenCookies = (res, accessToken, refreshToken) => {
   const isProduction = process.env.NODE_ENV === 'production';
-  const cookieSecure = process.env.COOKIE_SECURE === 'true' || isProduction;
+  // If COOKIE_SECURE is explicitly false, respect it (useful for local testing with HTTPS if needed)
+  const cookieSecure = process.env.COOKIE_SECURE !== 'false' && isProduction;
+
+  const cookieOptions = {
+    httpOnly: true, // Prevents JS access (XSS protection)
+    secure: cookieSecure, // Only sends over HTTPS
+    sameSite: isProduction ? 'strict' : 'lax', // CSRF protection
+  };
 
   res.cookie('accessToken', accessToken, {
-    httpOnly: true,
-    secure: cookieSecure,
-    sameSite: isProduction ? 'strict' : 'lax',
+    ...cookieOptions,
     maxAge: 8 * 60 * 60 * 1000, // 8 hours
   });
 
   res.cookie('refreshToken', refreshToken, {
-    httpOnly: true,
-    secure: cookieSecure,
-    sameSite: isProduction ? 'strict' : 'lax',
+    ...cookieOptions,
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     path: '/api/auth/refresh',
   });

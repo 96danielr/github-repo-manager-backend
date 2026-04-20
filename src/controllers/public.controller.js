@@ -74,15 +74,20 @@ export const getClientInfo = async (req, res, next) => {
     const contracts = await Contract.find({ 
       client: client._id,
       companyId: company._id,
-    }).populate('lot');
+    }).populate('lot').lean();
 
-    const contractsWithQuotas = await Promise.all(contracts.map(async (contract) => {
-      const quotas = await Quota.find({ contract: contract._id })
-        .sort({ type: 1, number: 1 }); // 'inicial' < 'normal'
+    // OPTIMIZATION: Get all quotas for all contracts in ONE query
+    const contractIds = contracts.map(c => c._id);
+    const allQuotas = await Quota.find({ contract: { $in: contractIds } })
+      .sort({ type: 1, number: 1 })
+      .lean();
+
+    const contractsWithQuotas = contracts.map((contract) => {
+      const contractQuotas = allQuotas.filter(q => q.contract.toString() === contract._id.toString());
       
       return {
-        ...contract.toObject(),
-        quotas: quotas.map((q) => ({
+        ...contract,
+        quotas: contractQuotas.map((q) => ({
           _id: q._id,
           number: q.number,
           type: q.type,
@@ -91,7 +96,7 @@ export const getClientInfo = async (req, res, next) => {
           status: q.status,
         })),
       };
-    }));
+    });
 
     res.json({
       success: true,

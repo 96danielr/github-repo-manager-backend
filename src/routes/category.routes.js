@@ -17,8 +17,8 @@ const router = Router();
 router.use(protect);
 
 router.get('/', getCategories);
-router.post('/', createCategoryValidation, validate, createCategory);
-router.put('/:id', updateCategoryValidation, validate, updateCategory);
+router.post('/', validate(createCategoryValidation), createCategory);
+router.put('/:id', validate(updateCategoryValidation), updateCategory);
 router.delete('/:id', deleteCategory);
 
 export default router;

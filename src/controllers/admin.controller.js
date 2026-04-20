@@ -12,7 +12,7 @@ import AppError from '../utils/AppError.js';
  */
 export const getAllUsers = async (req, res, next) => {
   try {
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
     const { page = 1, limit = 10, search } = req.query;
     
     const pageNum = parseInt(page);
@@ -76,7 +76,7 @@ export const getAllUsers = async (req, res, next) => {
  */
 export const getSellers = async (req, res, next) => {
   try {
-    const { id: tenantId } = req.tenant;
+    const { tenantId, isTenantAdmin } = req.user;
     const { companyId } = req.query; // If provided, filter by company
 
     let query = { 
@@ -88,7 +88,7 @@ export const getSellers = async (req, res, next) => {
     let memberships;
     // If companyId is provided AND user is not a tenant/super admin, filter by company
     // If they ARE tenant/super admin, they should see all sellers of the tenant anyway
-    if (companyId && !req.tenant.isTenantAdmin) {
+    if (companyId && !isTenantAdmin) {
       // Find memberships linked to this company
       const companyMemberships = await UserCompany.find({ companyId, tenantId })
         .populate({
@@ -134,7 +134,7 @@ export const createUser = async (req, res, next) => {
   try {
     const { fullName, email, password, role } = req.body;
     let { companyIds, companyId } = req.body;
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
 
     // Support both companyIds (array) and companyId (singular string)
     if (!companyIds && companyId) {
@@ -219,7 +219,7 @@ export const updateUser = async (req, res, next) => {
   try {
     const { role, status, fullName } = req.body;
     const membershipId = req.params.id;
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
 
     const membership = await User.findOne({
       _id: membershipId,
@@ -289,7 +289,7 @@ export const changeUserPassword = async (req, res, next) => {
   try {
     const { password } = req.body;
     const membershipId = req.params.id;
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
 
     if (!password || password.length < 8) {
       return next(new AppError('Password must be at least 8 characters', 400));
@@ -327,10 +327,10 @@ export const changeUserPassword = async (req, res, next) => {
 export const deleteUser = async (req, res, next) => {
   try {
     const membershipId = req.params.id;
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
 
     // Prevent deleting yourself
-    if (membershipId === req.tenant.userId.toString()) {
+    if (membershipId === req.user.userId.toString()) {
       return next(new AppError('You cannot remove your own membership', 400));
     }
 

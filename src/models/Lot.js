@@ -36,8 +36,16 @@ const lotSchema = new mongoose.Schema({
   }],
   status: {
     type: String,
-    enum: ['disponible', 'vendido'],
+    enum: ['disponible', 'apartado', 'separado', 'vendido'],
     default: 'disponible',
+  },
+  reservedAt: Date,
+  reservationBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Client',
+  },
+  reservationDetails: {
+    type: String,
   },
   sellerId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -48,5 +56,8 @@ const lotSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 lotSchema.index({ tenantId: 1, companyId: 1 });
+lotSchema.index({ status: 1 });
+lotSchema.index({ sellerId: 1 });
+lotSchema.index({ companyId: 1, status: 1 });
 
 export default mongoose.model('Lot', lotSchema);

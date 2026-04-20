@@ -105,9 +105,12 @@ export const register = async (req, res, next) => {
     });
 
     // 4. Create a default Company
+    const resolvedCompanyName = companyName || 'Mi Empresa';
+    const baseSlug = resolvedCompanyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
     const company = await Company.create({
       tenantId: tenant._id,
-      name: companyName || 'Mi Empresa',
+      name: resolvedCompanyName,
+      slug: `${baseSlug}-${Date.now().toString().slice(-4)}`
     });
 
     // Generate tokens

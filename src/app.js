@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
+import mongoSanitize from 'express-mongo-sanitize';
 
 import authRoutes from './routes/auth.routes.js';
 import categoryRoutes from './routes/category.routes.js';
@@ -25,8 +26,51 @@ import connectDB from './config/database.js';
 const app = express();
 app.set('trust proxy', 1);
 
-// Security headers
-app.use(helmet());
+// Security headers & CORS Configuration
+const frontendUrl = process.env.FRONTEND_URL;
+const extraOrigins = process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : [];
+
+const allowedOrigins = [
+  frontendUrl,
+  'http://localhost:3002',
+  'http://127.0.0.1:3002',
+  'http://192.168.1.106:3002', 
+  ...extraOrigins
+].filter(Boolean);
+
+// Extract origins for CSP (e.g., https://example.com)
+const cspOrigins = allowedOrigins.map(url => {
+  try { return new URL(url).origin; } catch (e) { return url; }
+});
+
+const isDev = process.env.NODE_ENV !== 'production';
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", ...(isDev ? ["'unsafe-eval'"] : [])],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:", ...cspOrigins],
+      connectSrc: ["'self'", "https:", ...cspOrigins, ...(isDev ? ["ws://localhost:*", "http://localhost:*"] : [])],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      ...(isDev ? {} : { upgradeInsecureRequests: [] })
+    },
+  },
+  frameguard: { action: 'deny' },
+  hsts: isDev ? false : {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+}));
+
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
 
 // Ensure Database Connection (Serverless robustness)
 app.use(async (req, res, next) => {
@@ -34,25 +78,17 @@ app.use(async (req, res, next) => {
     await connectDB();
     next();
   } catch (err) {
-    // If DB fails, hand off to error handler
     next(err);
   }
 });
 
 // CORS
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  'http://localhost:3002',
-  'http://127.0.0.1:3002',
-  'http://192.168.1.106:3002'
-].filter(Boolean);
-
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(null, true); // Allow all in dev to avoid friction
+      callback(null, isDev); // Allow all in dev, strict in prod
     }
   },
   credentials: true,
@@ -82,6 +118,7 @@ const authLimiter = rateLimit({
 // Body parsing
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+app.use(mongoSanitize());
 
 // Cookies
 app.use(cookieParser());
@@ -93,7 +130,13 @@ if (process.env.NODE_ENV === 'development') {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.status(200).json({ success: true, message: 'Server is running' });
+  res.status(200).json({ 
+    success: true, 
+    message: 'Server is running',
+    version: '1.0.0', // Build version
+    environment: process.env.NODE_ENV,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Routes

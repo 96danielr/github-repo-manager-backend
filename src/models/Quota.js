@@ -41,5 +41,9 @@ const quotaSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 quotaSchema.index({ tenantId: 1, companyId: 1 });
+quotaSchema.index({ contract: 1 });
+quotaSchema.index({ status: 1 });
+quotaSchema.index({ dueDate: 1 });
+quotaSchema.index({ companyId: 1, status: 1, dueDate: 1 });
 
 export default mongoose.model('Quota', quotaSchema);

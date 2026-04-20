@@ -27,7 +27,7 @@ export const getCompanies = async (req, res, next) => {
       });
     }
 
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
     const companies = await Company.find({ tenantId }).sort({ createdAt: -1 });
 
     res.json({
@@ -44,7 +44,7 @@ export const getCompanies = async (req, res, next) => {
  */
 export const getCompany = async (req, res, next) => {
   try {
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
     const companyId = req.params.id;
 
     let company = await Company.findOne({ _id: companyId, tenantId });
@@ -89,15 +89,26 @@ export const getCompany = async (req, res, next) => {
 export const createCompany = async (req, res, next) => {
   try {
     const { name, rfc } = req.body;
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
 
     if (!name) {
       return next(new AppError('Company name is required', 400));
     }
 
+    // Basic slugification
+    const baseSlug = name
+      .toLowerCase()
+      .trim()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
     const company = await Company.create({
       tenantId,
       name,
+      slug: `${baseSlug}-${Date.now().toString().slice(-4)}`,
       rfc,
     });
 
@@ -116,7 +127,7 @@ export const createCompany = async (req, res, next) => {
 export const updateCompany = async (req, res, next) => {
   try {
     const { name, rfc, status } = req.body;
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
     const companyId = req.params.id;
 
     const company = await Company.findOne({ _id: companyId, tenantId });
@@ -145,7 +156,7 @@ export const updateCompany = async (req, res, next) => {
  */
 export const deleteCompany = async (req, res, next) => {
   try {
-    const { id: tenantId } = req.tenant;
+    const { tenantId } = req.user;
     const companyId = req.params.id;
 
     const company = await Company.findOne({ _id: companyId, tenantId });

@@ -17,9 +17,9 @@ import {
 const router = Router();
 
 // Public auth routes
-router.post('/register', registerValidation, validate, register);
-router.post('/login', loginValidation, validate, login);
-router.post('/admin/login', loginValidation, validate, login); // alias for frontend compatibility
+router.post('/register', validate(registerValidation), register);
+router.post('/login', validate(loginValidation), login);
+router.post('/admin/login', validate(loginValidation), login); // alias for frontend compatibility
 router.post('/select-tenant', selectTenant);
 router.post('/refresh', refreshTokenHandler);
 

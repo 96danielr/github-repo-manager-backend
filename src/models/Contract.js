@@ -49,5 +49,8 @@ const contractSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 contractSchema.index({ tenantId: 1, companyId: 1 });
+contractSchema.index({ client: 1 });
+contractSchema.index({ lot: 1 });
+contractSchema.index({ sellerId: 1 });
 
 export default mongoose.model('Contract', contractSchema);

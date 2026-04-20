@@ -53,15 +53,11 @@ export const tenantMiddleware = async (req, res, next) => {
       return next(new AppError('Tenant account is suspended', 403));
     }
 
-    req.tenant = {
-      id: tenant._id,
-      name: tenant.name,
-      plan: tenant.plan,
-      status: tenant.status,
-      role: user.role,      // user's role
-      userId: user.userId,  // user's membership ID
-      isTenantAdmin: user.role === 'tenant_admin' || user.role === 'superadmin',
-    };
+    // Unify context into req.user
+    req.user.tenantId = tenant._id;
+    req.user.tenantName = tenant.name;
+    req.user.tenantPlan = tenant.plan;
+    req.user.isTenantAdmin = (user.role === 'tenant_admin' || user.role === 'superadmin');
 
     next();
   } catch (error) {

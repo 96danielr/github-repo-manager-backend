@@ -13,7 +13,7 @@ router.use(tenantMiddleware);
 // Dashboard summary — company-scoped
 router.get('/summary', companyMiddleware, async (req, res) => {
   try {
-    const { id: tenantId, companyId, role, userId } = req.tenant;
+    const { tenantId, companyId, role, userId } = req.user;
 
     const baseMatch = { tenantId, companyId };
     if (role === 'vendedor') {

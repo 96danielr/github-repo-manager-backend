@@ -44,5 +44,7 @@ const clientSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 clientSchema.index({ tenantId: 1, companyId: 1 });
+clientSchema.index({ companyId: 1, idNumber: 1 });
+clientSchema.index({ name: 'text' });
 
 export default mongoose.model('Client', clientSchema);

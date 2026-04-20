@@ -1,15 +1,18 @@
+import mongoose from 'mongoose';
 import Lot from '../models/Lot.js';
 import Client from '../models/Client.js';
 import Contract from '../models/Contract.js';
 import Quota from '../models/Quota.js';
 import { uploadToR2 } from '../utils/storage.js';
 import { logAudit } from '../utils/auditLogger.js';
+import { roundMoney } from '../utils/math.js';
+import { checkLotExpirations } from '../utils/lotExpiration.js';
 
 export const createLot = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId, role } = req.tenant;
+    const { tenantId, companyId, isTenantAdmin: isAdmin } = req.user;
 
-    if (role === 'vendedor') {
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'No tienes permiso para crear lotes' });
     }
 
@@ -55,7 +58,11 @@ export const createLot = async (req, res, next) => {
 
 export const getLots = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId, role, userId } = req.tenant;
+    const { tenantId, companyId, role, userId } = req.user;
+    
+    // Run lazy cleanup for expired reservations
+    await checkLotExpirations(tenantId, companyId);
+
     const { page = 1, limit = 10, search, sortBy, order } = req.query;
     const skip = (page - 1) * limit;
 
@@ -73,6 +80,8 @@ export const getLots = async (req, res, next) => {
     if (role === 'vendedor') {
       query.$or = [
         { status: 'disponible' },
+        { status: 'apartado' },
+        { status: 'separado' },
         { sellerId: userId },
       ];
     }
@@ -102,7 +111,8 @@ export const getLots = async (req, res, next) => {
       .populate({
         path: 'sellerId',
         populate: { path: 'accountId', select: 'fullName' },
-      });
+      })
+      .lean();
 
     // Handle existing sold lots that don't have sellerId stored yet
     const soldLotsWithoutSeller = lots
@@ -154,7 +164,17 @@ export const getLots = async (req, res, next) => {
 
 export const getLot = async (req, res, next) => {
   try {
-    const lot = await Lot.findById(req.params.id);
+    const { tenantId, companyId } = req.user;
+    
+    // Run lazy cleanup for this specific tenant/company
+    await checkLotExpirations(tenantId, companyId);
+
+    const lot = await Lot.findById(req.params.id)
+      .populate({
+        path: 'sellerId',
+        populate: { path: 'accountId', select: 'fullName' },
+      })
+      .lean();
 
     if (!lot) {
       return res.status(404).json({
@@ -174,8 +194,8 @@ export const getLot = async (req, res, next) => {
 
 export const updateLot = async (req, res, next) => {
   try {
-    const { role } = req.tenant;
-    if (role === 'vendedor') {
+    const { isTenantAdmin: isAdmin } = req.user;
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'No tienes permiso para editar lotes' });
     }
     const { 
@@ -223,8 +243,8 @@ export const updateLot = async (req, res, next) => {
 
 export const deleteLot = async (req, res, next) => {
   try {
-    const { role } = req.tenant;
-    if (role === 'vendedor') {
+    const { isTenantAdmin: isAdmin } = req.user;
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'No tienes permiso para eliminar lotes' });
     }
     const lot = await Lot.findByIdAndDelete(req.params.id);
@@ -247,8 +267,8 @@ export const deleteLot = async (req, res, next) => {
 
 export const uploadLotImages = async (req, res, next) => {
   try {
-    const { role } = req.tenant;
-    if (role === 'vendedor') {
+    const { isTenantAdmin: isAdmin } = req.user;
+    if (!isAdmin) {
       return res.status(403).json({ success: false, message: 'No tienes permiso para subir imágenes' });
     }
     const { id } = req.params;
@@ -290,7 +310,7 @@ export const getLotsPublic = async (req, res, next) => {
     const { companyId } = req.params;
     const { search } = req.query;
 
-    let query = { companyId };
+    let query = { companyId, status: 'disponible' };
     if (search) {
       query.$or = [
         { stage: { $regex: search, $options: 'i' } },
@@ -300,7 +320,9 @@ export const getLotsPublic = async (req, res, next) => {
     }
 
     const lots = await Lot.find(query)
-      .sort({ stage: 1, lotNumber: 1 });
+      .select('stage nomenclature lotNumber area price status images')
+      .sort({ stage: 1, lotNumber: 1 })
+      .lean();
 
     res.status(200).json({
       success: true,
@@ -317,7 +339,7 @@ export const getLotsPublic = async (req, res, next) => {
 export const sellLot = async (req, res, next) => {
   try {
     const { id } = req.params; // lotId
-    const { id: tenantId, companyId, role, userId } = req.tenant;
+    const { tenantId, companyId, role, userId } = req.user;
     const { 
       clientId, 
       clientData, 
@@ -335,7 +357,11 @@ export const sellLot = async (req, res, next) => {
 
     const lot = await Lot.findById(id);
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
-    if (lot.status === 'vendido') return res.status(400).json({ success: false, message: 'Lote ya está vendido' });
+    
+    // Allow selling if it's available or reserved by the same client/seller
+    if (lot.status === 'vendido') {
+      return res.status(400).json({ success: false, message: 'Lote ya está vendido' });
+    }
 
     // 1. Get or Create Client
     let client;
@@ -359,15 +385,25 @@ export const sellLot = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Debe seleccionar un cliente o proporcionar datos para uno nuevo' });
     }
 
+    // CHECK: Reserved lots can only be sold to the client who reserved them
+    if (['apartado', 'separado'].includes(lot.status)) {
+      if (lot.reservationBy && lot.reservationBy.toString() !== client._id.toString()) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Este lote está reservado por otro cliente y no puede ser vendido a terceros.' 
+        });
+      }
+    }
+
     const finalTotalValue = totalValue || lot.price || 0;
 
     // 2. Initial Calculations
-    const initialAmountTotal = Math.round(finalTotalValue * (initialQuotaPercentage / 100) * 100) / 100;
-    const residualAmount = Math.round((finalTotalValue - initialAmountTotal) * 100) / 100;
+    const initialAmountTotal = roundMoney(finalTotalValue * (initialQuotaPercentage / 100));
+    const residualAmount = roundMoney(finalTotalValue - initialAmountTotal);
     
     // We'll calculate installments properly in step 5
     const installmentsCountParsed = parseInt(installmentsCount) || 0;
-    const installmentValueEstimate = installmentsCountParsed > 0 ? Math.round((residualAmount / installmentsCountParsed) * 100) / 100 : 0;
+    const installmentValueEstimate = installmentsCountParsed > 0 ? roundMoney(residualAmount / installmentsCountParsed) : 0;
 
     // 3. Create Contract
     const contract = await Contract.create({
@@ -400,12 +436,12 @@ export const sellLot = async (req, res, next) => {
     // Initial Quotas breakdown
     let currentInitialSum = 0;
     const iCount = parseInt(initialQuotasCount) || 1;
-    const baseInitialVal = Math.round((initialAmountTotal / iCount) * 100) / 100;
+    const baseInitialVal = roundMoney(initialAmountTotal / iCount);
 
     for (let i = 1; i <= iCount; i++) {
       let val = baseInitialVal;
       if (i === iCount) {
-        val = Math.round((initialAmountTotal - currentInitialSum) * 100) / 100;
+        val = roundMoney(initialAmountTotal - currentInitialSum);
       }
       currentInitialSum += val;
 
@@ -431,7 +467,7 @@ export const sellLot = async (req, res, next) => {
     for (let i = 1; i <= installmentsCountParsed; i++) {
       let val = installmentValueEstimate;
       if (i === installmentsCountParsed) {
-        val = Math.round((residualAmount - currentNormalSum) * 100) / 100;
+        val = roundMoney(residualAmount - currentNormalSum);
       }
       currentNormalSum += val;
 
@@ -492,7 +528,7 @@ export const sellLot = async (req, res, next) => {
 export const getLotSaleDetail = async (req, res, next) => {
   try {
     const { id } = req.params; // lotId
-    const { id: tenantId, companyId } = req.tenant; 
+    const { tenantId, companyId } = req.user; 
 
     const contract = await Contract.findOne({ lot: id, companyId, tenantId })
       .sort({ createdAt: -1 })
@@ -545,6 +581,119 @@ export const getLotSaleDetail = async (req, res, next) => {
         contract,
         quotas,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+/**
+ * Reserves a lot in 'apartado' or 'separado' status
+ */
+export const reserveLot = async (req, res, next) => {
+  try {
+
+    const { id } = req.params;
+    const { tenantId, companyId, userId } = req.user;
+    const { type, clientId, clientData, observations, amount } = req.body;
+
+    if (!['apartado', 'separado'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'Tipo de reserva inválido' });
+    }
+
+    const lot = await Lot.findById(id);
+    if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
+    if (lot.status !== 'disponible') {
+      return res.status(400).json({ success: false, message: 'El lote no está disponible para reserva' });
+    }
+
+    // 1. Get or Create Client
+    let client;
+    if (clientId) {
+      client = await Client.findOne({ _id: clientId, tenantId, companyId });
+      if (!client) return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
+    } else if (clientData) {
+      if (clientData.idNumber) {
+        client = await Client.findOne({ idNumber: clientData.idNumber, tenantId, companyId });
+      }
+      if (!client) {
+        client = await Client.create({ ...clientData, tenantId, companyId });
+      }
+    } else {
+      return res.status(400).json({ success: false, message: 'Debe proporcionar datos del cliente' });
+    }
+
+    // 2. Separate logic for 'separado' (min $500,000)
+    if (type === 'separado') {
+      const minAmount = 500000;
+      const paidAmount = parseFloat(amount) || 0;
+      if (paidAmount < minAmount) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Para separar el lote se requiere un monto mínimo de $${minAmount.toLocaleString()}` 
+        });
+      }
+    }
+
+    // 3. Update Lot
+    lot.status = type;
+    lot.reservedAt = new Date();
+    lot.reservationBy = client._id;
+    lot.reservationDetails = observations;
+    lot.sellerId = userId;
+    await lot.save();
+
+    await logAudit(req, {
+      action: `RESERVE_LOT_${type.toUpperCase()}`,
+      module: 'LOTS',
+      targetId: lot._id,
+      details: { clientId: client._id, type, amount }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Lote ${type} exitosamente`,
+      data: lot
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Manually releases a lot back to 'disponible'
+ */
+export const releaseLot = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { isTenantAdmin: isAdmin } = req.user;
+    const { reason, observations } = req.body;
+
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: 'No tienes permiso para liberar lotes' });
+    }
+
+    const lot = await Lot.findById(id);
+    if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
+
+    const previousStatus = lot.status;
+    lot.status = 'disponible';
+    lot.reservedAt = undefined;
+    lot.reservationBy = undefined;
+    lot.reservationDetails = undefined;
+    lot.sellerId = undefined;
+    await lot.save();
+
+    await logAudit(req, {
+      action: 'RELEASE_LOT',
+      module: 'LOTS',
+      targetId: lot._id,
+      details: { previousStatus, reason, observations }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Lote liberado correctamente y ya está disponible',
+      data: lot
     });
   } catch (error) {
     next(error);

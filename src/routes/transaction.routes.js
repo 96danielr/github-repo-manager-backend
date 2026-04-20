@@ -20,11 +20,11 @@ const router = Router();
 router.use(protect);
 
 // Summary must come before /:id to avoid matching "summary" as an ID
-router.get('/summary', summaryQueryValidation, validate, getSummary);
+router.get('/summary', validate(summaryQueryValidation), getSummary);
 router.get('/', getTransactions);
 router.get('/:id', getTransaction);
-router.post('/', createTransactionValidation, validate, createTransaction);
-router.put('/:id', updateTransactionValidation, validate, updateTransaction);
+router.post('/', validate(createTransactionValidation), createTransaction);
+router.put('/:id', validate(updateTransactionValidation), updateTransaction);
 router.delete('/:id', deleteTransaction);
 
 export default router;

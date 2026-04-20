@@ -8,7 +8,7 @@ export const getBanks = async (req, res, next) => {
   try {
     let { page = 1, limit = 100, search, sortBy = 'socialDenomination', sortOrder = 'asc', companyId: queryCompanyId, companySlug } = req.query;
     
-    let { id: tenantId, companyId } = req.tenant || {};
+    let { tenantId, companyId } = req.user || {};
     
     // Support public requests or requests without full middleware context
     if (!tenantId && (queryCompanyId || companySlug)) {
@@ -83,7 +83,7 @@ export const getBanks = async (req, res, next) => {
  */
 export const createBank = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId } = req.tenant || {};
+    const { tenantId, companyId } = req.user || {};
     
     const bankData = {
       ...req.body,
@@ -107,7 +107,8 @@ export const createBank = async (req, res, next) => {
  */
 export const bulkCreateBanks = async (req, res, next) => {
   try {
-    const { banks } = req.body; // Array of bank objects
+    const { banks } = req.body;
+    const { tenantId, companyId } = req.user || {};
 
     if (!Array.isArray(banks)) {
       return res.status(400).json({
@@ -116,9 +117,14 @@ export const bulkCreateBanks = async (req, res, next) => {
       });
     }
 
-    // Filter out duplicates based on code if needed, but insertMany handles errors
-    // Use ordered: false to continue inserting even if one bank fails (e.g. duplicate key)
-    const result = await Bank.insertMany(banks, { ordered: false });
+    // Inject tenant/company context if available
+    const scopedBanks = banks.map(bank => ({
+      ...bank,
+      tenantId: bank.tenantId || tenantId,
+      companyId: bank.companyId || companyId
+    }));
+
+    const result = await Bank.insertMany(scopedBanks, { ordered: false });
 
     res.status(201).json({
       success: true,
@@ -126,7 +132,6 @@ export const bulkCreateBanks = async (req, res, next) => {
       count: result.length,
     });
   } catch (error) {
-    // If some succeeded but others failed due to duplicates, insertMany throws an error with partial results
     if (error.name === 'BulkWriteError' || error.result) {
       return res.status(201).json({
         success: true,
@@ -145,7 +150,7 @@ export const bulkCreateBanks = async (req, res, next) => {
  */
 export const updateBank = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId, role } = req.tenant || {};
+    const { tenantId, companyId, role } = req.user || {};
     
     // Safety check: Don't allow non-superadmins to update global banks or other company's banks
     const query = { _id: req.params.id };
@@ -180,7 +185,7 @@ export const updateBank = async (req, res, next) => {
  */
 export const deleteBank = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId, role } = req.tenant || {};
+    const { tenantId, companyId, role } = req.user || {};
     const bankId = req.params.id;
 
     const bank = await Bank.findById(bankId);
@@ -196,7 +201,7 @@ export const deleteBank = async (req, res, next) => {
     }
 
     // Non-superadmins can only manage their own company banks
-    if (role !== 'superadmin' && (bank.tenantId?.toString() !== tenantId || bank.companyId?.toString() !== companyId)) {
+    if (role !== 'superadmin' && (bank.tenantId?.toString() !== tenantId?.toString() || bank.companyId?.toString() !== companyId?.toString())) {
       return res.status(403).json({ success: false, message: 'No tienes permiso para gestionar este banco' });
     }
 
@@ -272,7 +277,7 @@ export const importBanksExcel = async (req, res, next) => {
       return undefined;
     };
 
-    const { id: tenantId, companyId, role } = req.tenant || {};
+    const { tenantId, companyId, role } = req.user || {};
     const banksToInsert = [];
 
     for (const row of data) {

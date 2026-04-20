@@ -7,7 +7,7 @@ import { aiChatService } from '../services/aiChat/aiChat.service.js';
 export const askAI = async (req, res, next) => {
   try {
     const { question, history } = req.body;
-    const { id: tenantId, companyId } = req.tenant;
+    const { tenantId, companyId } = req.user;
 
     if (!question) {
       return res.status(400).json({ success: false, message: 'Pregunta faltante' });

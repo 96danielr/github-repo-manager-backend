@@ -9,11 +9,19 @@ import {
   getLotsPublic,
   sellLot,
   getLotSaleDetail,
+  reserveLot,
+  releaseLot,
 } from '../controllers/lot.controller.js';
 import { protect } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { companyMiddleware } from '../middleware/company.js';
 import upload from '../middleware/upload.js';
+import validate from '../middleware/validate.js';
+import { 
+  reserveLotValidation, 
+  sellLotValidation, 
+  releaseLotValidation 
+} from '../validators/lot.validators.js';
 
 const router = express.Router();
 
@@ -29,8 +37,10 @@ router.route('/')
   .get(companyMiddleware, getLots)
   .post(companyMiddleware, createLot);
 
-// Sale operation
-router.post('/:id/sell', companyMiddleware, sellLot);
+// Sale operations
+router.post('/:id/sell', companyMiddleware, validate(sellLotValidation), sellLot);
+router.post('/:id/reserve', companyMiddleware, validate(reserveLotValidation), reserveLot);
+router.post('/:id/release', companyMiddleware, validate(releaseLotValidation), releaseLot);
 
 router.route('/:id')
   .get(getLot)

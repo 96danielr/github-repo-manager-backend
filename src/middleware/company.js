@@ -20,7 +20,7 @@ export const companyMiddleware = async (req, res, next) => {
       return next(new AppError('Company ID is required', 400));
     }
 
-    const { id: tenantId, isTenantAdmin, userId } = req.tenant;
+    const { tenantId, isTenantAdmin, userId } = req.user;
 
     // Verify company exists and belongs to this tenant
     const company = await Company.findOne({
@@ -35,8 +35,8 @@ export const companyMiddleware = async (req, res, next) => {
 
     if (isTenantAdmin) {
       // Tenant admins can access any company in their tenant
-      req.tenant.companyId = company._id;
-      req.tenant.companyRole = 'tenant_admin';
+      req.user.companyId = company._id;
+      req.user.companyRole = 'tenant_admin';
       return next();
     }
 
@@ -58,8 +58,8 @@ export const companyMiddleware = async (req, res, next) => {
       return next(new AppError('You do not have access to this company', 403));
     }
 
-    req.tenant.companyId = company._id;
-    req.tenant.companyRole = userCompany.role;
+    req.user.companyId = company._id;
+    req.user.companyRole = userCompany.role;
 
     next();
   } catch (error) {

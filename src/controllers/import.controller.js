@@ -4,6 +4,8 @@ import Client from '../models/Client.js';
 import Lot from '../models/Lot.js';
 import Contract from '../models/Contract.js';
 import Quota from '../models/Quota.js';
+import { parseNumStringWithLocalization } from '../utils/math.js';
+import { parseExcelDate, formatDateSmall } from '../utils/date.js';
 
 /**
  * Parses an Excel file and imports clients, lots, contracts and quotas
@@ -16,7 +18,7 @@ export const importExcel = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
     }
 
-    const { id: tenantId, companyId } = req.tenant;
+    const { tenantId, companyId } = req.user;
     const includeSiigo = req.query.includeSiigo !== 'false'; // Default true
     const createClientsWithoutName = req.query.createClientsWithoutName !== 'false'; // Default true
 
@@ -67,47 +69,6 @@ export const importExcel = async (req, res) => {
       return prefixKey ? row[prefixKey] : undefined;
     };
 
-    // Helper to parse numbers from strings with currency or separators (handles LatAm/EU and US formats)
-    const parseNum = (val) => {
-      if (typeof val === 'number') return val;
-      if (val === null || val === undefined || val === '') return 0;
-      
-      let s = val.toString().trim().replace(/[$\s]/g, '');
-      
-      // If there are both dots and commas, identifying the decimal is easier
-      if (s.includes(',') && s.includes('.')) {
-        if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
-          // LatAm/EU Style: 1.234,56
-          s = s.replace(/\./g, '').replace(',', '.');
-        } else {
-          // US Style: 1,234.56
-          s = s.replace(/,/g, '');
-        }
-      } else if (s.includes(',')) {
-        // Only comma: 1.234 or 1,23 or 0,123
-        const parts = s.split(',');
-        // If it starts with 0 (or -0), or it has something other than 3 digits, it's a decimal
-        if (parts.length === 2 && (parts[1].length !== 3 || !parts[0] || Number(parts[0]) === 0)) {
-          s = s.replace(',', '.');
-        } else {
-          // Multiple commas or exactly 3 digits after the only comma: thousands
-          s = s.replace(/,/g, '');
-        }
-      } else if (s.includes('.')) {
-        // Only dot: 1.234 or 1.23 or 0.123
-        const parts = s.split('.');
-        // Multiple dots OR exactly 3 digits (and not starting with 0 or empty): thousands
-        if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3 && parts[0] && Number(parts[0]) !== 0)) {
-          s = s.replace(/\./g, '');
-        }
-      }
-      
-      const result = parseFloat(s);
-      return isNaN(result) ? 0 : result;
-    };
-
-
-
     // 1. PRE-LOAD CATALOGS for O(1) lookup and batch optimization
     const [existingLots, existingClients, existingContracts] = await Promise.all([
       Lot.find({ tenantId, companyId }),
@@ -157,7 +118,7 @@ export const importExcel = async (req, res) => {
           stage,
           nomenclature,
           lotNumber,
-          area: parseNum(getVal(row, 'METROS 2')),
+          area: parseNumStringWithLocalization(getVal(row, 'METROS 2')),
           excelRowId: excelRowId,
           tenantId,
           companyId,
@@ -181,8 +142,8 @@ export const importExcel = async (req, res) => {
         }
 
         // Check if there are any initial or normal quotas in this row
-        const hasInitialQuotas = [1, 2, 3, 4, 5].some((j) => parseNum(getVal(row, `CUOTA INICIAL ${j}`)) > 0);
-        const hasNormalQuotas = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].some((j) => parseNum(getVal(row, `CUOTA ${j}`)) > 0);
+        const hasInitialQuotas = [1, 2, 3, 4, 5].some((j) => parseNumStringWithLocalization(getVal(row, `CUOTA INICIAL ${j}`)) > 0);
+        const hasNormalQuotas = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].some((j) => parseNumStringWithLocalization(getVal(row, `CUOTA ${j}`)) > 0);
         const hasSiigoRecord = includeSiigo && (parseNum(getVal(row, 'RECAUDADO SIIGO 2024')) > 0 || parseNum(getVal(row, 'RECAUDADO SIIGO 2025')) > 0);
 
         if (!clienteNombre && !cedula && (!createClientsWithoutName || (!hasInitialQuotas && !hasNormalQuotas && !hasSiigoRecord))) {
@@ -235,16 +196,16 @@ export const importExcel = async (req, res) => {
           contractDate: parseExcelDate(getVal(row, 'FECHA CONTRATO')),
           negotiation: getVal(row, 'NEGOCIACION'),
           appendix: getVal(row, 'OTRO SI'),
-          totalValue: parseNum(getVal(row, 'VALOR DEL CONTRATO')),
+          totalValue: parseNumStringWithLocalization(getVal(row, 'VALOR DEL CONTRATO')),
           installmentsCount: parseInt(getVal(row, 'NO. CUOTAS')) || 0,
-          installmentValue: parseNum(getVal(row, 'VALOR CUOTA')),
+          installmentValue: parseNumStringWithLocalization(getVal(row, 'VALOR CUOTA')),
           paymentDay: parseInt(getVal(row, 'DIA DE PAGO')) || 0,
           startDate: parseExcelDate(getVal(row, 'FECHA INICIO CUOTAS')),
           bonus: getVal(row, 'BONO'),
-          bonusValue: parseNum(getVal(row, 'VALOR BONO')),
+          bonusValue: parseNumStringWithLocalization(getVal(row, 'VALOR BONO')),
           commercial: getVal(row, 'COMERCIAL'),
-          recaudadoSiigo2024: includeSiigo ? parseNum(getVal(row, 'RECAUDADO SIIGO 2024')) : 0,
-          recaudadoSiigo2025: includeSiigo ? parseNum(getVal(row, 'RECAUDADO SIIGO 2025')) : 0,
+          recaudadoSiigo2024: includeSiigo ? parseNumStringWithLocalization(getVal(row, 'RECAUDADO SIIGO 2024')) : 0,
+          recaudadoSiigo2025: includeSiigo ? parseNumStringWithLocalization(getVal(row, 'RECAUDADO SIIGO 2025')) : 0,
           juridicalRequirement: getVal(row, 'REQUERIMIENTO JURIDICO'),
           observations: getVal(row, 'OBSERVACIONES'),
           excelRowId: excelRowId,
@@ -274,7 +235,7 @@ export const importExcel = async (req, res) => {
         // Initial Quotas (1 to 5) - If value > 0, it means it was paid
         for (let j = 1; j <= 5; j++) {
           const quotaVal = getVal(row, `CUOTA INICIAL ${j}`);
-          const val = parseNum(quotaVal);
+          const val = parseNumStringWithLocalization(quotaVal);
           if (val > 0) {
             quotasToInsert.push({
               tenantId,
@@ -294,7 +255,7 @@ export const importExcel = async (req, res) => {
         // Regular Quotas (1 to 24) - If value > 0, it means it was paid
         for (let j = 1; j <= 24; j++) {
           const quotaVal = getVal(row, `CUOTA ${j}`);
-          const val = parseNum(quotaVal);
+          const val = parseNumStringWithLocalization(quotaVal);
           if (val > 0) {
             quotasToInsert.push({
               tenantId,
@@ -361,7 +322,7 @@ export const importExcel = async (req, res) => {
  */
 export const exportExcel = async (req, res) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { tenantId, companyId } = req.user;
 
     // 1. Fetch all contracts for this tenant+company and populate their client and lot
     const contracts = await Contract.find({ tenantId, companyId }).populate('client').populate('lot');
@@ -499,23 +460,7 @@ export const exportExcel = async (req, res) => {
   }
 };
 
-/**
- * Helper to parse dates from Excel
- * @param {any} val - Value from excel cell
- * @returns {Date|null}
- */
-function parseExcelDate(val) {
-  if (!val) return null;
-  if (val instanceof Date) return val;
-  
-  if (typeof val === 'number') {
-    // Excel date serial number (days since 1900-01-01)
-    return new Date(Math.round((val - 25569) * 86400 * 1000));
-  }
-  
-  const d = new Date(val);
-  return isNaN(d.getTime()) ? null : d;
-}
+
 
 /**
  * Generates an Excel template with headers for data import

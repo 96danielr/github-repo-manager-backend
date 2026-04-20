@@ -12,7 +12,7 @@ import { logAudit } from '../utils/auditLogger.js';
  */
 export const getPayments = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId, role, userId } = req.tenant;
+    const { tenantId, companyId, role, userId } = req.user;
     const { page = 1, limit = 20, search, status, sortBy, order } = req.query;
 
     const pageNum = parseInt(page);
@@ -96,11 +96,12 @@ export const getPayments = async (req, res, next) => {
       })
       .sort(sortObj)
       .skip(skip)
-      .limit(limitNum);
+      .limit(limitNum)
+      .lean();
 
     // Format for frontend expectations
     const formattedPayments = quotas.map((q) => {
-      const qObj = q.toObject();
+      const qObj = q;
 
       // Map Quota status to frontend display status
       const statusMap = {
@@ -160,7 +161,7 @@ export const getPayments = async (req, res, next) => {
  */
 export const approvePayment = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { tenantId, companyId } = req.user;
     const { id: quotaId } = req.params;
 
     const quota = await Quota.findOne({ _id: quotaId, tenantId, companyId });
@@ -260,7 +261,7 @@ export const approvePayment = async (req, res, next) => {
  */
 export const rejectPayment = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { tenantId, companyId } = req.user;
     const { id: quotaId } = req.params;
 
     const quota = await Quota.findOne({ _id: quotaId, tenantId, companyId });
@@ -292,7 +293,7 @@ export const rejectPayment = async (req, res, next) => {
  */
 export const registerManualPayment = async (req, res, next) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { tenantId, companyId } = req.user;
     const { quotaId, amount, bank, observations, paymentDate } = req.body;
     const file = req.file;
 

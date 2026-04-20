@@ -18,7 +18,7 @@ router.use(tenantMiddleware);
 // Company-scoped: GET /clients?companyId=xxx
 router.get('/', companyMiddleware, async (req, res) => {
   try {
-    const { id: tenantId, companyId, role, userId } = req.tenant;
+    const { tenantId, companyId, role, userId } = req.user;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -199,7 +199,7 @@ router.get('/', companyMiddleware, async (req, res) => {
 // GET /clients/:id - Detail with contracts
 router.get('/:id', companyMiddleware, async (req, res) => {
   try {
-    const { id: tenantId, companyId, role, userId } = req.tenant;
+    const { tenantId, companyId, role, userId } = req.user;
     const { id } = req.params;
 
     const query = { _id: id, tenantId, companyId };
@@ -289,7 +289,7 @@ router.get('/:id', companyMiddleware, async (req, res) => {
 // POST /clients - Manual creation
 router.post('/', companyMiddleware, async (req, res) => {
   try {
-    const { id: tenantId, companyId, userId } = req.tenant;
+    const { tenantId, companyId, userId } = req.user;
     const { name, idNumber, phone, email, address, behavior } = req.body;
 
     if (!name || !idNumber) {
@@ -330,7 +330,7 @@ router.post('/', companyMiddleware, async (req, res) => {
 // DELETE /clients/:id
 router.delete('/:id', companyMiddleware, async (req, res) => {
   try {
-    const { id: tenantId, companyId } = req.tenant;
+    const { tenantId, companyId } = req.user;
     const { id } = req.params;
 
     const result = await Client.findOneAndDelete({ _id: id, tenantId, companyId });

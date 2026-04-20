@@ -1,56 +1,32 @@
-import { body, query } from 'express-validator';
+import { z } from 'zod';
 
-export const createTransactionValidation = [
-  body('type')
-    .notEmpty().withMessage('Transaction type is required')
-    .isIn(['income', 'expense']).withMessage('Type must be income or expense'),
-  body('amount')
-    .notEmpty().withMessage('Amount is required')
-    .isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
-  body('description')
-    .trim()
-    .notEmpty().withMessage('Description is required')
-    .isLength({ max: 200 }).withMessage('Description cannot exceed 200 characters'),
-  body('category')
-    .notEmpty().withMessage('Category is required')
-    .isMongoId().withMessage('Invalid category ID'),
-  body('date')
-    .optional()
-    .isISO8601().withMessage('Date must be a valid date'),
-  body('notes')
-    .optional()
-    .trim()
-    .isLength({ max: 500 }).withMessage('Notes cannot exceed 500 characters'),
-];
+const isoDate = z.string().refine(val => !isNaN(Date.parse(val)), { message: 'Date must be a valid date' });
 
-export const updateTransactionValidation = [
-  body('type')
-    .optional()
-    .isIn(['income', 'expense']).withMessage('Type must be income or expense'),
-  body('amount')
-    .optional()
-    .isFloat({ min: 0.01 }).withMessage('Amount must be greater than 0'),
-  body('description')
-    .optional()
-    .trim()
-    .isLength({ max: 200 }).withMessage('Description cannot exceed 200 characters'),
-  body('category')
-    .optional()
-    .isMongoId().withMessage('Invalid category ID'),
-  body('date')
-    .optional()
-    .isISO8601().withMessage('Date must be a valid date'),
-  body('notes')
-    .optional()
-    .trim()
-    .isLength({ max: 500 }).withMessage('Notes cannot exceed 500 characters'),
-];
+export const createTransactionValidation = z.object({
+  body: z.object({
+    type: z.enum(['income', 'expense'], { required_error: 'Transaction type is required', invalid_type_error: 'Type must be income or expense' }),
+    amount: z.coerce.number({ required_error: 'Amount is required' }).min(0.01, 'Amount must be greater than 0'),     
+    description: z.string({ required_error: 'Description is required' }).trim().min(1, 'Description is required').max(200, 'Description cannot exceed 200 characters'),
+    category: z.string({ required_error: 'Category is required' }).regex(/^[0-9a-fA-F]{24}$/, 'Invalid category ID'),
+    date: isoDate.optional(),
+    notes: z.string().trim().max(500, 'Notes cannot exceed 500 characters').optional(),
+  })
+});
 
-export const summaryQueryValidation = [
-  query('month')
-    .optional()
-    .isInt({ min: 1, max: 12 }).withMessage('Month must be between 1 and 12'),
-  query('year')
-    .optional()
-    .isInt({ min: 2020, max: 2100 }).withMessage('Year must be between 2020 and 2100'),
-];
+export const updateTransactionValidation = z.object({
+  body: z.object({
+    type: z.enum(['income', 'expense'], { invalid_type_error: 'Type must be income or expense' }).optional(),
+    amount: z.coerce.number().min(0.01, 'Amount must be greater than 0').optional(),     
+    description: z.string().trim().max(200, 'Description cannot exceed 200 characters').optional(),
+    category: z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid category ID').optional(),
+    date: isoDate.optional(),
+    notes: z.string().trim().max(500, 'Notes cannot exceed 500 characters').optional(),
+  })
+});
+
+export const summaryQueryValidation = z.object({
+  query: z.object({
+    month: z.coerce.number().min(1, 'Month must be between 1 and 12').max(12, 'Month must be between 1 and 12').optional(),
+    year: z.coerce.number().min(2020, 'Year must be between 2020 and 2100').max(2100, 'Year must be between 2020 and 2100').optional(),
+  })
+});

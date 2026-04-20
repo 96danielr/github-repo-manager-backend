@@ -1,41 +1,38 @@
-import { body } from 'express-validator';
+import { z } from 'zod';
 
-export const registerValidation = [
-  body('name')
-    .trim()
-    .notEmpty().withMessage('Name is required')
-    .isLength({ min: 2, max: 50 }).withMessage('Name must be between 2 and 50 characters'),
+export const registerValidation = z.object({
+  body: z.object({
+    name: z.string({ required_error: 'Name is required' })
+      .trim()
+      .min(2, 'Name must be between 2 and 50 characters')
+      .max(50, 'Name must be between 2 and 50 characters'),
+      
+    email: z.string({ required_error: 'Email is required' })
+      .trim()
+      .email('Please provide a valid email')
+      .toLowerCase(),
+      
+    password: z.string({ required_error: 'Password is required' })
+      .min(8, 'Password must be at least 8 characters')
+      .regex(/[a-z]/, 'Password must contain a lowercase letter')
+      .regex(/[A-Z]/, 'Password must contain an uppercase letter')
+      .regex(/[0-9]/, 'Password must contain a number'),
+      
+    confirmPassword: z.string({ required_error: 'Please confirm your password' })
+  }).refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword']
+  })
+});
 
-  body('email')
-    .trim()
-    .notEmpty().withMessage('Email is required')
-    .isEmail().withMessage('Please provide a valid email')
-    .normalizeEmail(),
-
-  body('password')
-    .notEmpty().withMessage('Password is required')
-    .isLength({ min: 8 }).withMessage('Password must be at least 8 characters')
-    .matches(/[a-z]/).withMessage('Password must contain a lowercase letter')
-    .matches(/[A-Z]/).withMessage('Password must contain an uppercase letter')
-    .matches(/[0-9]/).withMessage('Password must contain a number'),
-
-  body('confirmPassword')
-    .notEmpty().withMessage('Please confirm your password')
-    .custom((value, { req }) => {
-      if (value !== req.body.password) {
-        throw new Error('Passwords do not match');
-      }
-      return true;
-    }),
-];
-
-export const loginValidation = [
-  body('email')
-    .trim()
-    .notEmpty().withMessage('Email is required')
-    .isEmail().withMessage('Please provide a valid email')
-    .normalizeEmail(),
-
-  body('password')
-    .notEmpty().withMessage('Password is required'),
-];
+export const loginValidation = z.object({
+  body: z.object({
+    email: z.string({ required_error: 'Email is required' })
+      .trim()
+      .email('Please provide a valid email')
+      .toLowerCase(),
+      
+    password: z.string({ required_error: 'Password is required' })
+      .min(1, 'Password is required'), // Ensures it is not empty
+  })
+});
