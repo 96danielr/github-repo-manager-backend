@@ -10,11 +10,7 @@ import { checkLotExpirations } from '../utils/lotExpiration.js';
 
 export const createLot = async (req, res, next) => {
   try {
-    const { tenantId, companyId, isTenantAdmin: isAdmin } = req.user;
-
-    if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'No tienes permiso para crear lotes' });
-    }
+    const { tenantId, companyId } = req.user;
 
     const { 
       stage, 
@@ -194,10 +190,8 @@ export const getLot = async (req, res, next) => {
 
 export const updateLot = async (req, res, next) => {
   try {
-    const { isTenantAdmin: isAdmin } = req.user;
-    if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'No tienes permiso para editar lotes' });
-    }
+    // Permiso ya validado por middleware
+
     const { 
       stage, 
       nomenclature, 
@@ -243,10 +237,8 @@ export const updateLot = async (req, res, next) => {
 
 export const deleteLot = async (req, res, next) => {
   try {
-    const { isTenantAdmin: isAdmin } = req.user;
-    if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'No tienes permiso para eliminar lotes' });
-    }
+    // Permiso ya validado por middleware
+
     const lot = await Lot.findByIdAndDelete(req.params.id);
 
     if (!lot) {
@@ -267,10 +259,8 @@ export const deleteLot = async (req, res, next) => {
 
 export const uploadLotImages = async (req, res, next) => {
   try {
-    const { isTenantAdmin: isAdmin } = req.user;
-    if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'No tienes permiso para subir imágenes' });
-    }
+    // Permiso ya validado por middleware
+
     const { id } = req.params;
     const files = req.files;
 
@@ -665,12 +655,8 @@ export const reserveLot = async (req, res, next) => {
 export const releaseLot = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { isTenantAdmin: isAdmin } = req.user;
-    const { reason, observations } = req.body;
+    // Permiso ya validado por middleware
 
-    if (!isAdmin) {
-      return res.status(403).json({ success: false, message: 'No tienes permiso para liberar lotes' });
-    }
 
     const lot = await Lot.findById(id);
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });

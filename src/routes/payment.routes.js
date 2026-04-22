@@ -1,7 +1,8 @@
 import express from 'express';
 import multer from 'multer';
 import { getPayments, approvePayment, rejectPayment, registerManualPayment } from '../controllers/payment.controller.js';
-import { protect } from '../middleware/auth.js';
+import { protect, checkPermission } from '../middleware/auth.js';
+import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { companyMiddleware } from '../middleware/company.js';
 
@@ -20,9 +21,26 @@ const upload = multer({
 });
 
 // Company-scoped routes
-router.get('/all', companyMiddleware, getPayments);
-router.post('/manual', companyMiddleware, upload.single('capture'), registerManualPayment);
-router.put('/:id/approve', companyMiddleware, approvePayment);
-router.put('/:id/reject', companyMiddleware, rejectPayment);
+router.get('/all', 
+  companyMiddleware, 
+  checkPermission(PERMISSIONS.PAGOS_VIEW), 
+  getPayments
+);
+router.post('/manual', 
+  companyMiddleware, 
+  checkPermission(PERMISSIONS.PAGOS_CREATE), 
+  upload.single('capture'), 
+  registerManualPayment
+);
+router.put('/:id/approve', 
+  companyMiddleware, 
+  checkPermission(PERMISSIONS.PAGOS_APPROVE), 
+  approvePayment
+);
+router.put('/:id/reject', 
+  companyMiddleware, 
+  checkPermission(PERMISSIONS.PAGOS_REJECT), 
+  rejectPayment
+);
 
 export default router;

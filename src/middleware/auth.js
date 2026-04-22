@@ -2,6 +2,8 @@ import AppError from '../utils/AppError.js';
 import { verifyAccessToken } from '../utils/jwt.js';
 import UserAccount from '../models/UserAccount.js';
 
+import { PERMISSIONS, hasPermission } from '../config/permissions.js';
+
 /**
  * Protect middleware — verifies JWT and injects req.user.
  * req.user = { accountId, userId, tenantId, role, companies }
@@ -52,12 +54,28 @@ export const protect = async (req, res, next) => {
 
 /**
  * Restrict to specific roles within the tenant.
+ * @deprecated Use checkPermission instead for more granular control.
  */
 export const restrictTo = (...roles) => {
   return (req, res, next) => {
     if (!roles.includes(req.user.role)) {
       return next(
         new AppError('You do not have permission to perform this action', 403)
+      );
+    }
+    next();
+  };
+};
+
+/**
+ * Check if the user has a specific permission.
+ */
+export const checkPermission = (permission) => {
+  return (req, res, next) => {
+    const hasPerm = hasPermission(req.user.role, permission);
+    if (!hasPerm) {
+      return next(
+        new AppError(`No tienes permiso para realizar esta acción (${permission})`, 403)
       );
     }
     next();

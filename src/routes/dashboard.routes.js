@@ -1,7 +1,8 @@
 import express from 'express';
 import Contract from '../models/Contract.js';
 import User from '../models/User.js';
-import { protect } from '../middleware/auth.js';
+import { protect, checkPermission } from '../middleware/auth.js';
+import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { companyMiddleware } from '../middleware/company.js';
 
@@ -11,7 +12,7 @@ router.use(protect);
 router.use(tenantMiddleware);
 
 // Dashboard summary — company-scoped
-router.get('/summary', companyMiddleware, async (req, res) => {
+router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DASHBOARD), async (req, res) => {
   try {
     const { tenantId, companyId, role, userId } = req.user;
 

@@ -20,6 +20,7 @@ import paymentRoutes from './routes/payment.routes.js';
 import publicRoutes from './routes/public.routes.js';
 import bankRoutes from './routes/bank.routes.js';
 import aiChatRoutes from './routes/aiChat.routes.js';
+import portalRoutes from './routes/portal.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 import connectDB from './config/database.js';
 
@@ -154,6 +155,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/banks', bankRoutes);
 app.use('/api/ai', aiChatRoutes);
+app.use('/api/portal', portalRoutes);
 
 // 404 handler
 app.use((req, res) => {

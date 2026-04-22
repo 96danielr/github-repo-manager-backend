@@ -17,8 +17,13 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['superadmin', 'tenant_admin', 'company_admin', 'agent', 'vendedor'],
+    enum: ['superadmin', 'tenant_admin', 'company_admin', 'agent', 'vendedor', 'cliente'],
     required: [true, 'Role is required'],
+  },
+  clientId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Client',
+    required: false,
   },
   status: {
     type: String,

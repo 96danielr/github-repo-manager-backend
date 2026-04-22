@@ -8,6 +8,7 @@ import User from './src/models/User.js';
 import Tenant from './src/models/Tenant.js';
 import Company from './src/models/Company.js';
 import Bank from './src/models/Bank.js';
+import UserCompany from './src/models/UserCompany.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -99,25 +100,32 @@ const seedTestData = async () => {
     });
     console.log(`✅ Admin membership assigned to ${alicanteTenant.name}`);
 
-    // 6. Create an Agent for Alicante
-    const agentAccount = await UserAccount.create({
-      email: 'agente@cobra.com',
+    const vendedorAccount = await UserAccount.create({
+      email: 'vendedor@cobra.com',
       passwordHash: '12345678',
-      fullName: 'Agente Javier',
+      fullName: 'Vendedor Marcos',
     });
-    console.log(`✅ Agent account created: ${agentAccount.email}`);
+    console.log(`✅ Vendedor account created: ${vendedorAccount.email}`);
 
-    await User.create({
-      accountId: agentAccount._id,
+    const vendedorMembership = await User.create({
+      accountId: vendedorAccount._id,
       tenantId: alicanteTenant._id,
-      role: 'agent',
+      role: 'vendedor',
     });
-    console.log(`✅ Agent membership assigned to ${alicanteTenant.name}`);
+
+    // CRITICAL: Link Vendedor to Company
+    await UserCompany.create({
+      userId: vendedorMembership._id,
+      companyId: alfasurCompany._id,
+      tenantId: alicanteTenant._id,
+      role: 'vendedor',
+    });
+    console.log(`✅ Vendedor membership assigned to ${alicanteTenant.name} and linked to ${alfasurCompany.name}`);
 
     console.log('\n--- Credentials for Testing ---');
     console.log('Superadmin (Platform):   superadmin@cobra.com / 12345678');
     console.log('Tenant Admin (Alicante): admin@cobra.com / 12345678');
-    console.log('Agent (Alicante):        agente@cobra.com / 12345678');
+    console.log('Vendedor (Alicante):     vendedor@cobra.com / 12345678');
     console.log('-------------------------------\n');
 
     // --- BANK SEEDING ---

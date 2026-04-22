@@ -29,6 +29,34 @@ const companySchema = new mongoose.Schema({
     enum: ['active', 'inactive'],
     default: 'active',
   },
+  nit: {
+    type: String,
+    trim: true,
+  },
+  address: {
+    type: String,
+    trim: true,
+  },
+  phone: {
+    type: String,
+    trim: true,
+  },
+  email: {
+    type: String,
+    trim: true,
+    lowercase: true,
+  },
+  bankInfo: {
+    banco: String,
+    tipoCuenta: String,
+    numeroCuenta: String,
+  },
+  integrations: {
+    whatsappEnabled: { type: Boolean, default: false },
+    whatsappApiKey: String,
+    daptaEnabled: { type: Boolean, default: false },
+    daptaApiKey: String,
+  },
 }, {
   timestamps: true,
 });

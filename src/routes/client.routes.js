@@ -2,12 +2,15 @@ import express from 'express';
 import mongoose from 'mongoose';
 import Client from '../models/Client.js';
 import Contract from '../models/Contract.js';
-import { protect } from '../middleware/auth.js';
+import { protect, checkPermission } from '../middleware/auth.js';
+import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { companyMiddleware } from '../middleware/company.js';
 import { logAudit } from '../utils/auditLogger.js';
 
 import Quota from '../models/Quota.js';
+import UserAccount from '../models/UserAccount.js';
+import User from '../models/User.js';
 
 const router = express.Router();
 
@@ -16,7 +19,7 @@ router.use(protect);
 router.use(tenantMiddleware);
 
 // Company-scoped: GET /clients?companyId=xxx
-router.get('/', companyMiddleware, async (req, res) => {
+router.get('/', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_VIEW), async (req, res) => {
   try {
     const { tenantId, companyId, role, userId } = req.user;
     const page = parseInt(req.query.page) || 1;
@@ -131,6 +134,8 @@ router.get('/', companyMiddleware, async (req, res) => {
           name: { $first: '$name' },
           idNumber: { $first: '$idNumber' },
           phone: { $first: '$phone' },
+          email: { $first: '$email' },
+          address: { $first: '$address' },
           behavior: { $first: '$behavior' },
           createdAt: { $first: '$createdAt' },
           totalValue: { $sum: '$contracts.totalValue' },
@@ -197,7 +202,7 @@ router.get('/', companyMiddleware, async (req, res) => {
 });
 
 // GET /clients/:id - Detail with contracts
-router.get('/:id', companyMiddleware, async (req, res) => {
+router.get('/:id', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_DETAILS), async (req, res) => {
   try {
     const { tenantId, companyId, role, userId } = req.user;
     const { id } = req.params;
@@ -287,10 +292,10 @@ router.get('/:id', companyMiddleware, async (req, res) => {
 });
 
 // POST /clients - Manual creation
-router.post('/', companyMiddleware, async (req, res) => {
+router.post('/', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_CREATE), async (req, res) => {
   try {
     const { tenantId, companyId, userId } = req.user;
-    const { name, idNumber, phone, email, address, behavior } = req.body;
+    const { name, idNumber, phone, email, address, behavior, password } = req.body;
 
     if (!name || !idNumber) {
       return res.status(400).json({ success: false, message: 'Nombre y Cédula son obligatorios' });
@@ -314,11 +319,37 @@ router.post('/', companyMiddleware, async (req, res) => {
       createdBy: userId,
     });
 
+    // Automatically create a portal user account if password and email are provided
+    if (email && password) {
+      try {
+        let account = await UserAccount.findOne({ email });
+        
+        if (!account) {
+          account = await UserAccount.create({
+            email,
+            passwordHash: password,
+            fullName: name,
+          });
+        }
+
+        // Create the membership with client role and link to clientId
+        await User.create({
+          accountId: account._id,
+          tenantId,
+          role: 'cliente',
+          clientId: client._id, // Link to the newly created client
+        });
+      } catch (userError) {
+        console.error('Error creating portal user for client:', userError);
+        // We don't fail the whole request, but maybe log it
+      }
+    }
+
     await logAudit(req, {
       action: 'CREATE_CLIENT',
       module: 'CLIENTS',
       targetId: client._id,
-      details: { name, idNumber }
+      details: { name, idNumber, portalAccess: !!(email && password) }
     });
 
     res.status(201).json({ success: true, data: client });
@@ -328,7 +359,7 @@ router.post('/', companyMiddleware, async (req, res) => {
 });
 
 // DELETE /clients/:id
-router.delete('/:id', companyMiddleware, async (req, res) => {
+router.delete('/:id', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_EXPORT), async (req, res) => {
   try {
     const { tenantId, companyId } = req.user;
     const { id } = req.params;

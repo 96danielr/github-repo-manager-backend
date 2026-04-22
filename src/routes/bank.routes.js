@@ -8,7 +8,8 @@ import {
   importBanksExcel,
 } from '../controllers/bank.controller.js';
 import multer from 'multer';
-import { protect, restrictTo } from '../middleware/auth.js';
+import { protect, checkPermission } from '../middleware/auth.js';
+import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { companyMiddleware } from '../middleware/company.js';
 
@@ -22,10 +23,10 @@ router.use(protect, tenantMiddleware, companyMiddleware);
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-router.post('/', createBank);
-router.post('/bulk', restrictTo('superadmin', 'tenant_admin', 'company_admin'), bulkCreateBanks);
-router.post('/import', restrictTo('superadmin', 'tenant_admin', 'company_admin'), upload.single('file'), importBanksExcel);
-router.put('/:id', updateBank);
-router.delete('/:id', deleteBank);
+router.post('/', checkPermission(PERMISSIONS.BANCOS_MANAGE), createBank);
+router.post('/bulk', checkPermission(PERMISSIONS.BANCOS_MANAGE), bulkCreateBanks);
+router.post('/import', checkPermission(PERMISSIONS.BANCOS_MANAGE), upload.single('file'), importBanksExcel);
+router.put('/:id', checkPermission(PERMISSIONS.BANCOS_MANAGE), updateBank);
+router.delete('/:id', checkPermission(PERMISSIONS.BANCOS_DELETE), deleteBank);
 
 export default router;

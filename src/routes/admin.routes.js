@@ -11,7 +11,8 @@ import {
   getSellers,
   getSystemLogs,
 } from '../controllers/admin.controller.js';
-import { protect, restrictTo } from '../middleware/auth.js';
+import { protect, checkPermission } from '../middleware/auth.js';
+import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import upload from '../middleware/upload.js';
 
@@ -22,15 +23,15 @@ router.use(protect);
 router.use(tenantMiddleware);
 
 // Superadmin only
-router.get('/logs', restrictTo('superadmin'), getSystemLogs);
+router.get('/logs', checkPermission(PERMISSIONS.SYSTEM_LOGS), getSystemLogs);
 
 // Other admin routes
-router.get('/all', restrictTo('superadmin', 'tenant_admin'), getAllUsers);
-router.get('/sellers', restrictTo('superadmin', 'tenant_admin', 'company_admin'), getSellers);
-router.post('/create', restrictTo('superadmin', 'tenant_admin'), createUser);
-router.put('/update/:id', restrictTo('superadmin', 'tenant_admin'), updateUser);
-router.put('/change-password/:id', restrictTo('superadmin', 'tenant_admin'), changeUserPassword);
-router.delete('/delete/:id', restrictTo('superadmin', 'tenant_admin'), deleteUser);
+router.get('/all', checkPermission(PERMISSIONS.EQUIPO_VIEW), getAllUsers);
+router.get('/sellers', checkPermission(PERMISSIONS.EQUIPO_VIEW), getSellers);
+router.post('/create', checkPermission(PERMISSIONS.EQUIPO_MANAGE), createUser);
+router.put('/update/:id', checkPermission(PERMISSIONS.EQUIPO_MANAGE), updateUser);
+router.put('/change-password/:id', checkPermission(PERMISSIONS.EQUIPO_MANAGE), changeUserPassword);
+router.delete('/delete/:id', checkPermission(PERMISSIONS.EQUIPO_MANAGE), deleteUser);
 
 // Profile routes (any authenticated user can update their own profile)
 router.put('/profile', updateProfile);
