@@ -69,6 +69,15 @@ export const importExcel = async (req, res) => {
       return prefixKey ? row[prefixKey] : undefined;
     };
 
+    // Helper: tries multiple column name aliases and returns the first found value
+    const getValMulti = (row, ...keys) => {
+      for (const key of keys) {
+        const val = getVal(row, key);
+        if (val !== undefined && val !== null && val !== '') return val;
+      }
+      return undefined;
+    };
+
     // 1. PRE-LOAD CATALOGS for O(1) lookup and batch optimization
     const [existingLots, existingClients, existingContracts] = await Promise.all([
       Lot.find({ tenantId, companyId }),
@@ -101,16 +110,19 @@ export const importExcel = async (req, res) => {
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNum = i + 2;
-      const excelRowId = getVal(row, 'No.') || rowNum;
+      const excelRowId = getValMulti(row, 'No.', '#') || rowNum;
 
       try {
-        const cedula = getVal(row, 'CEDULA')?.toString().trim() || undefined;
-        const clienteNombre = getVal(row, 'CLIENTE')?.toString().trim();
+        const cedula = getValMulti(row, 'CEDULA')?.toString().trim() || undefined;
+        // New format uses 'NOMBRE', old format uses 'CLIENTE'
+        const clienteNombre = getValMulti(row, 'CLIENTE', 'NOMBRE')?.toString().trim();
 
         // 1. Lot Management (Logic: stage|nomen|lote)
+        // New format: only 'Nomenclatura'. Old format: ETAPA + NOMENCLATURA + LOTE
         const stage = getVal(row, 'ETAPA')?.toString() || 'N/A';
-        const nomenclature = getVal(row, 'NOMENCLATURA')?.toString() || 'N/A';
-        const lotNumber = getVal(row, 'LOTE')?.toString() || 'N/A';
+        const nomenclature = getValMulti(row, 'NOMENCLATURA', 'Nomenclatura')?.toString() || 'N/A';
+        // New format has no separate LOTE column — use Nomenclatura as fallback
+        const lotNumber = getValMulti(row, 'LOTE', 'Nomenclatura')?.toString() || 'N/A';
         const lotKey = `${stage}|${nomenclature}|${lotNumber}`;
         
         let lot = lotMap.get(lotKey);
@@ -118,7 +130,8 @@ export const importExcel = async (req, res) => {
           stage,
           nomenclature,
           lotNumber,
-          area: parseNumStringWithLocalization(getVal(row, 'METROS 2')),
+          // New format: 'AREA TOTAL', old format: 'METROS 2'
+          area: parseNumStringWithLocalization(getValMulti(row, 'METROS 2', 'AREA TOTAL')),
           excelRowId: excelRowId,
           tenantId,
           companyId,
@@ -142,9 +155,21 @@ export const importExcel = async (req, res) => {
         }
 
         // Check if there are any initial or normal quotas in this row
-        const hasInitialQuotas = [1, 2, 3, 4, 5].some((j) => parseNumStringWithLocalization(getVal(row, `CUOTA INICIAL ${j}`)) > 0);
-        const hasNormalQuotas = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].some((j) => parseNumStringWithLocalization(getVal(row, `CUOTA ${j}`)) > 0);
-        const hasSiigoRecord = includeSiigo && (parseNum(getVal(row, 'RECAUDADO SIIGO 2024')) > 0 || parseNum(getVal(row, 'RECAUDADO SIIGO 2025')) > 0);
+        // New format: CUOTA INICIAL 1/2/3 + CUOTA INICIAL CONSOLIDADA (→ slot 4)
+        // Old format: CUOTA INICIAL 1 through 5
+        const hasInitialQuotas = [1, 2, 3, 4, 5].some((j) => {
+          if (j === 4) return parseNumStringWithLocalization(getValMulti(row, `CUOTA INICIAL ${j}`, 'CUOTA INICIAL CONSOLIDADA')) > 0;
+          return parseNumStringWithLocalization(getVal(row, `CUOTA INICIAL ${j}`)) > 0;
+        });
+        // New format: CUOTA #1..#30. Old format: CUOTA 1..24
+        const maxQuotas = 30;
+        const hasNormalQuotas = Array.from({ length: maxQuotas }, (_, i) => i + 1).some((j) =>
+          parseNumStringWithLocalization(getValMulti(row, `CUOTA ${j}`, `CUOTA #${j}`)) > 0
+        );
+        const hasSiigoRecord = includeSiigo && (
+          parseNumStringWithLocalization(getValMulti(row, 'RECAUDADO SIIGO 2024', 'RECAUDADO REPORTADO MATRIZ')) > 0 ||
+          parseNumStringWithLocalization(getVal(row, 'RECAUDADO SIIGO 2025')) > 0
+        );
 
         if (!clienteNombre && !cedula && (!createClientsWithoutName || (!hasInitialQuotas && !hasNormalQuotas && !hasSiigoRecord))) {
           summary.rowsProcessed++;
@@ -160,8 +185,10 @@ export const importExcel = async (req, res) => {
         const clientData = {
           name: effectiveName,
           idNumber: cedula,
-          phone: getVal(row, 'TELEFONO')?.toString(),
-          behavior: getVal(row, 'COMPORTAMIENTO CLIENTE'),
+          // New format: 'TELEFONO N1', old format: 'TELEFONO'
+          phone: getValMulti(row, 'TELEFONO', 'TELEFONO N1')?.toString(),
+          // New format: 'Comportamiento Cliente', old format: 'COMPORTAMIENTO CLIENTE'
+          behavior: getValMulti(row, 'COMPORTAMIENTO CLIENTE', 'Comportamiento Cliente'),
           excelRowId: excelRowId,
           tenantId,
           companyId,
@@ -193,20 +220,27 @@ export const importExcel = async (req, res) => {
         const contractInfo = {
           client: client._id,
           lot: lot._id,
-          contractDate: parseExcelDate(getVal(row, 'FECHA CONTRATO')),
-          negotiation: getVal(row, 'NEGOCIACION'),
+          // New format: 'FECHA CONTRATO (SELECCIONAR)', old: 'FECHA CONTRATO'
+          contractDate: parseExcelDate(getValMulti(row, 'FECHA CONTRATO', 'FECHA CONTRATO (SELECCIONAR)')),
+          // New format: 'NEGOCIACIÓN' (with accent), old: 'NEGOCIACION'
+          negotiation: getValMulti(row, 'NEGOCIACION', 'NEGOCIACIÓN'),
           appendix: getVal(row, 'OTRO SI'),
-          totalValue: parseNumStringWithLocalization(getVal(row, 'VALOR DEL CONTRATO')),
-          installmentsCount: parseInt(getVal(row, 'NO. CUOTAS')) || 0,
+          // New format: 'VALOR TOTAL', old: 'VALOR DEL CONTRATO'
+          totalValue: parseNumStringWithLocalization(getValMulti(row, 'VALOR DEL CONTRATO', 'VALOR TOTAL')),
+          // New format: 'NUMERO DE CUOTAS', old: 'NO. CUOTAS'
+          installmentsCount: parseInt(getValMulti(row, 'NO. CUOTAS', 'NUMERO DE CUOTAS')) || 0,
           installmentValue: parseNumStringWithLocalization(getVal(row, 'VALOR CUOTA')),
           paymentDay: parseInt(getVal(row, 'DIA DE PAGO')) || 0,
           startDate: parseExcelDate(getVal(row, 'FECHA INICIO CUOTAS')),
           bonus: getVal(row, 'BONO'),
           bonusValue: parseNumStringWithLocalization(getVal(row, 'VALOR BONO')),
-          commercial: getVal(row, 'COMERCIAL'),
-          recaudadoSiigo2024: includeSiigo ? parseNumStringWithLocalization(getVal(row, 'RECAUDADO SIIGO 2024')) : 0,
+          // New format: 'ASESOR', old: 'COMERCIAL'
+          commercial: getValMulti(row, 'COMERCIAL', 'ASESOR'),
+          // New format: 'RECAUDADO REPORTADO MATRIZ' maps to Siigo 2024
+          recaudadoSiigo2024: includeSiigo ? parseNumStringWithLocalization(getValMulti(row, 'RECAUDADO SIIGO 2024', 'RECAUDADO REPORTADO MATRIZ')) : 0,
           recaudadoSiigo2025: includeSiigo ? parseNumStringWithLocalization(getVal(row, 'RECAUDADO SIIGO 2025')) : 0,
-          juridicalRequirement: getVal(row, 'REQUERIMIENTO JURIDICO'),
+          // New format: 'Proceso Juridico', old: 'REQUERIMIENTO JURIDICO'
+          juridicalRequirement: getValMulti(row, 'REQUERIMIENTO JURIDICO', 'Proceso Juridico'),
           observations: getVal(row, 'OBSERVACIONES'),
           excelRowId: excelRowId,
           tenantId,
@@ -232,10 +266,13 @@ export const importExcel = async (req, res) => {
         // 4. Quotas Preparation (Logic: Presence in Excel = Paid)
         contractIdsToClearQuotas.add(contract._id);
 
-        // Initial Quotas (1 to 5) - If value > 0, it means it was paid
+        // Initial Quotas (1 to 5)
+        // Slot 4: new format uses 'CUOTA INICIAL CONSOLIDADA' as equivalent
         for (let j = 1; j <= 5; j++) {
-          const quotaVal = getVal(row, `CUOTA INICIAL ${j}`);
-          const val = parseNumStringWithLocalization(quotaVal);
+          const quotaKey = j === 4
+            ? getValMulti(row, `CUOTA INICIAL ${j}`, 'CUOTA INICIAL CONSOLIDADA')
+            : getVal(row, `CUOTA INICIAL ${j}`);
+          const val = parseNumStringWithLocalization(quotaKey);
           if (val > 0) {
             quotasToInsert.push({
               tenantId,
@@ -252,9 +289,10 @@ export const importExcel = async (req, res) => {
           }
         }
 
-        // Regular Quotas (1 to 24) - If value > 0, it means it was paid
-        for (let j = 1; j <= 24; j++) {
-          const quotaVal = getVal(row, `CUOTA ${j}`);
+        // Regular Quotas (1 to 30)
+        // New format: 'CUOTA #N'. Old format: 'CUOTA N'. Both supported.
+        for (let j = 1; j <= 30; j++) {
+          const quotaVal = getValMulti(row, `CUOTA ${j}`, `CUOTA #${j}`);
           const val = parseNumStringWithLocalization(quotaVal);
           if (val > 0) {
             quotasToInsert.push({
