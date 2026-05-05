@@ -3,6 +3,7 @@ import { askAI } from '../controllers/aiChat.controller.js';
 import { protect, restrictTo } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { companyMiddleware } from '../middleware/company.js';
+import { checkFeatureLimit } from '../middleware/limitCheck.js';
 
 const router = express.Router();
 
@@ -16,6 +17,10 @@ router.use(companyMiddleware);
  * @desc    Ask a question about sales data using AI
  * @access  Private (Admins only)
  */
-router.post('/ask', restrictTo('tenant_admin', 'company_admin', 'superadmin'), askAI);
+router.post('/ask', 
+  restrictTo('tenant_admin', 'company_admin', 'superadmin'), 
+  checkFeatureLimit('ai_chat'),
+  askAI
+);
 
 export default router;

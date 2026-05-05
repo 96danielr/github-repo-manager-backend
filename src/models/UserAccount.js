@@ -23,6 +23,10 @@ const userAccountSchema = new mongoose.Schema({
     minlength: [2, 'Name must be at least 2 characters'],
     maxlength: [150, 'Name cannot exceed 150 characters'],
   },
+  documentoIdentidad: {
+    type: String,
+    trim: true,
+  },
   status: {
     type: String,
     enum: ['active', 'inactive'],

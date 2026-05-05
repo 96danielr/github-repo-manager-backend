@@ -358,6 +358,36 @@ router.post('/', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_CREATE)
   }
 });
 
+// PUT /clients/:id - Update client
+router.put('/:id', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_CREATE), async (req, res) => {
+  try {
+    const { tenantId, companyId } = req.user;
+    const { id } = req.params;
+    const { name, idNumber, phone, email, address, behavior } = req.body;
+
+    const client = await Client.findOneAndUpdate(
+      { _id: id, tenantId, companyId },
+      { name, idNumber, phone, email, address, behavior },
+      { new: true, runValidators: true }
+    );
+
+    if (!client) {
+      return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
+    }
+
+    await logAudit(req, {
+      action: 'UPDATE_CLIENT',
+      module: 'CLIENTS',
+      targetId: client._id,
+      details: { name, idNumber }
+    });
+
+    res.json({ success: true, data: client });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // DELETE /clients/:id
 router.delete('/:id', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_EXPORT), async (req, res) => {
   try {

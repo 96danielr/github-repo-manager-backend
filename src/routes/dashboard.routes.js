@@ -1,10 +1,12 @@
 import express from 'express';
 import Contract from '../models/Contract.js';
 import User from '../models/User.js';
+import Lot from '../models/Lot.js';
 import { protect, checkPermission } from '../middleware/auth.js';
 import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { companyMiddleware } from '../middleware/company.js';
+import mongoose from 'mongoose';
 
 const router = express.Router();
 
@@ -19,6 +21,41 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
     const baseMatch = { tenantId, companyId };
     if (role === 'vendedor') {
       baseMatch.sellerId = userId;
+    }
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    // 1. Top Advisor of the month
+    const topAdvisorAggregate = await Contract.aggregate([
+      { 
+        $match: { 
+          tenantId: new mongoose.Types.ObjectId(tenantId), 
+          companyId: new mongoose.Types.ObjectId(companyId),
+          contractDate: { $gte: startOfMonth, $lte: endOfMonth }
+        } 
+      },
+      { $group: { _id: '$sellerId', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 1 }
+    ]);
+
+    let topAdvisor = null;
+    if (topAdvisorAggregate.length > 0 && topAdvisorAggregate[0]._id) {
+      const advisorUser = await User.findById(topAdvisorAggregate[0]._id)
+        .populate({
+          path: 'accountId',
+          select: 'fullName'
+        });
+      
+      if (advisorUser) {
+        topAdvisor = {
+          id: advisorUser._id,
+          name: advisorUser.accountId?.fullName || 'N/A',
+          count: topAdvisorAggregate[0].count
+        };
+      }
     }
 
     const totalClientsCount = await Contract.distinct('client', baseMatch).then((clients) => clients.length);
@@ -71,6 +108,41 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
     const totalSalesCount = await Contract.countDocuments(baseMatch);
     const teamMembersCount = await User.countDocuments({ tenantId, status: 'active' });
 
+    // 2. Lot Statistics
+    const separatedLots = await Lot.countDocuments({ ...baseMatch, status: 'separado' });
+    const soldLots = await Lot.countDocuments({ ...baseMatch, status: 'vendido' });
+    const availableLots = await Lot.countDocuments({ ...baseMatch, status: 'disponible' });
+
+    const lotStatsByStage = await Lot.aggregate([
+      { $match: { tenantId: new mongoose.Types.ObjectId(tenantId), companyId: new mongoose.Types.ObjectId(companyId) } },
+      {
+        $group: {
+          _id: '$stage',
+          total: { $sum: 1 },
+          vendidos: { $sum: { $cond: [{ $eq: ['$status', 'vendido'] }, 1, 0] } },
+          disponibles: { $sum: { $cond: [{ $eq: ['$status', 'disponible'] }, 1, 0] } },
+          separados: { $sum: { $cond: [{ $eq: ['$status', 'separado'] }, 1, 0] } },
+        }
+      },
+      {
+        $project: {
+          stage: '$_id',
+          total: 1,
+          vendidos: 1,
+          disponibles: 1,
+          separados: 1,
+          porcentajeVendido: {
+            $cond: [
+              { $gt: ['$total', 0] },
+              { $multiply: [{ $divide: ['$vendidos', '$total'] }, 100] },
+              0
+            ]
+          }
+        }
+      },
+      { $sort: { stage: 1 } }
+    ]);
+
     res.json({
       success: true,
       data: {
@@ -105,6 +177,13 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
           whatsappEnviadosMes: 0,
           llamadasAIMes: 0,
         },
+        topAdvisor,
+        lotStats: {
+          separated: separatedLots,
+          sold: soldLots,
+          available: availableLots,
+          byStage: lotStatsByStage
+        }
       },
     });
   } catch (error) {

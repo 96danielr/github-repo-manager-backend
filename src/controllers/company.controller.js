@@ -88,7 +88,7 @@ export const getCompany = async (req, res, next) => {
  */
 export const createCompany = async (req, res, next) => {
   try {
-    const { name, rfc } = req.body;
+    const { name, rfc, nit } = req.body;
     const { tenantId } = req.user;
 
     if (!name) {
@@ -110,6 +110,7 @@ export const createCompany = async (req, res, next) => {
       name,
       slug: `${baseSlug}-${Date.now().toString().slice(-4)}`,
       rfc,
+      nit,
     });
 
     res.status(201).json({

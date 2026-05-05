@@ -10,7 +10,7 @@ import AppError from '../utils/AppError.js';
  */
 export const createTenantWithAdmin = async (req, res, next) => {
   try {
-    const { tenantName, fullName, email, password, plan } = req.body;
+    const { tenantName, fullName, email, password, plan, nit, documentoIdentidad } = req.body;
 
     if (!tenantName || !fullName || !email || !password) {
       return next(new AppError('All fields are required', 400));
@@ -34,6 +34,7 @@ export const createTenantWithAdmin = async (req, res, next) => {
       email,
       passwordHash: password, 
       fullName,
+      documentoIdentidad,
       role: 'user', 
     });
 
@@ -47,7 +48,8 @@ export const createTenantWithAdmin = async (req, res, next) => {
     // 4. Create a default Company for this new Enterprise
     const defaultCompany = await Company.create({
       tenantId: newTenant._id,
-      name: `Empresa Principal - ${tenantName}`,
+      name: tenantName,
+      nit: nit,
     });
 
     res.status(201).json({
