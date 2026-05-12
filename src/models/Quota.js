@@ -33,6 +33,7 @@ const quotaSchema = new mongoose.Schema({
   },
   paymentCapture: String,
   paymentBank: String,
+  paymentMethod: String,
   paymentDate: Date,
   paymentObservations: String,
   amountPaid: Number,

@@ -26,6 +26,15 @@ const clientSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  phones: [String],
+  address: {
+    type: String,
+    trim: true,
+  },
+  expeditionPlace: {
+    type: String,
+    trim: true,
+  },
   email: {
     type: String,
     trim: true,

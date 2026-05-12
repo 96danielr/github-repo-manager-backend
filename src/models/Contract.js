@@ -43,14 +43,17 @@ const contractSchema = new mongoose.Schema({
   commercial: String,
   recaudadoSiigo2024: { type: Number, default: 0 },
   recaudadoSiigo2025: { type: Number, default: 0 },
+  revisadoPor: String,
   juridicalRequirement: String,
   observations: String,
   excelRowId: Number,
+  status: { type: String, default: 'ACTIVO' }, // Possible values: FIRMADO, PENDIENTE, DISPONIBLE, etc.
 }, { timestamps: true });
 
 contractSchema.index({ tenantId: 1, companyId: 1 });
 contractSchema.index({ client: 1 });
 contractSchema.index({ lot: 1 });
 contractSchema.index({ sellerId: 1 });
+contractSchema.index({ status: 1 });
 
 export default mongoose.model('Contract', contractSchema);

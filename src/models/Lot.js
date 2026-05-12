@@ -25,6 +25,10 @@ const lotSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  reference: {
+    type: String,
+    trim: true,
+  },
   area: {
     type: Number,
   },
@@ -57,6 +61,7 @@ const lotSchema = new mongoose.Schema({
 
 lotSchema.index({ tenantId: 1, companyId: 1 });
 lotSchema.index({ status: 1 });
+lotSchema.index({ reference: 1 });
 lotSchema.index({ sellerId: 1 });
 lotSchema.index({ companyId: 1, status: 1 });
 

@@ -86,8 +86,13 @@ export const importExcel = async (req, res) => {
     ]);
 
     // Index maps
-    const lotMap = new Map(); // key: stage|nomenclature|lotNumber
-    existingLots.forEach((l) => lotMap.set(`${l.stage}|${l.nomenclature}|${l.lotNumber}`, l));
+    const lotMap = new Map(); // key: reference|nomenclature
+    existingLots.forEach((l) => {
+      const ref = (l.reference || '').toString().trim().toLowerCase();
+      const nom = (l.nomenclature || '').toString().trim().toLowerCase();
+      const key = `${ref}|${nom}`;
+      lotMap.set(key, l);
+    });
 
     const clientByCedula = new Map();
     const clientByExcelId = new Map();
@@ -113,25 +118,48 @@ export const importExcel = async (req, res) => {
       const excelRowId = getValMulti(row, 'No.', '#') || rowNum;
 
       try {
-        const cedula = getValMulti(row, 'CEDULA')?.toString().trim() || undefined;
+        const realCedula = getValMulti(row, 'CEDULA')?.toString().trim() || undefined;
         // New format uses 'NOMBRE', old format uses 'CLIENTE'
         const clienteNombre = getValMulti(row, 'CLIENTE', 'NOMBRE')?.toString().trim();
 
-        // 1. Lot Management (Logic: stage|nomen|lote)
-        // New format: only 'Nomenclatura'. Old format: ETAPA + NOMENCLATURA + LOTE
-        const stage = getVal(row, 'ETAPA')?.toString() || 'N/A';
-        const nomenclature = getValMulti(row, 'NOMENCLATURA', 'Nomenclatura')?.toString() || 'N/A';
-        // New format has no separate LOTE column — use Nomenclatura as fallback
-        const lotNumber = getValMulti(row, 'LOTE', 'Nomenclatura')?.toString() || 'N/A';
-        const lotKey = `${stage}|${nomenclature}|${lotNumber}`;
+        const nomenclature = getValMulti(row, 'NOMENCLATURA', 'Nomenclatura')?.toString() || undefined;
+        const reference = getValMulti(row, 'REFERENCIA', 'Referencia')?.toString().trim() || undefined;
         
+        // Validation: If no reference or nomenclature, skip the row (per instructions)
+        if (!reference && !nomenclature) {
+          summary.rowsSkipped++;
+          summary.rowsProcessed++;
+          continue;
+        }
+
+        const stage = getVal(row, 'ETAPA')?.toString() || 'Etapa 1';
+        const lotNumber = getValMulti(row, 'LOTE', 'Lote', 'Nomenclatura')?.toString() || 'N/A';
+        // Identification is by combination of reference and nomenclature
+        const refClean = (reference || '').toString().trim().toLowerCase();
+        const nomClean = (nomenclature || '').toString().trim().toLowerCase();
+        const lotKey = `${refClean}|${nomClean}`;
+        
+        const contratoStatus = getValMulti(row, 'CONTRATOS', 'CONTRATO')?.toString().trim();
+        const contratoStatusUpper = contratoStatus?.toUpperCase();
+        
+        let lotStatus = 'disponible';
+        if (contratoStatusUpper === 'FIRMADO' || contratoStatusUpper === 'FIRMADO SOLO RL') {
+          lotStatus = 'vendido';
+        } else if (contratoStatusUpper && contratoStatusUpper !== 'DISPONIBLE' && contratoStatusUpper !== 'SIN REGISTRO') {
+          lotStatus = 'apartado';
+        }
+
         let lot = lotMap.get(lotKey);
         const lotData = {
           stage,
           nomenclature,
           lotNumber,
+          reference,
           // New format: 'AREA TOTAL', old format: 'METROS 2'
           area: parseNumStringWithLocalization(getValMulti(row, 'METROS 2', 'AREA TOTAL')),
+          // New format: 'VALOR TOTAL', old: 'VALOR DEL CONTRATO'
+          price: parseNumStringWithLocalization(getValMulti(row, 'VALOR TOTAL', 'VALOR DEL CONTRATO')),
+          status: lotStatus,
           excelRowId: excelRowId,
           tenantId,
           companyId,
@@ -155,39 +183,54 @@ export const importExcel = async (req, res) => {
         }
 
         // Check if there are any initial or normal quotas in this row
-        // New format: CUOTA INICIAL 1/2/3 + CUOTA INICIAL CONSOLIDADA (→ slot 4)
-        // Old format: CUOTA INICIAL 1 through 5
-        const hasInitialQuotas = [1, 2, 3, 4, 5].some((j) => {
-          if (j === 4) return parseNumStringWithLocalization(getValMulti(row, `CUOTA INICIAL ${j}`, 'CUOTA INICIAL CONSOLIDADA')) > 0;
+        // New format: CUOTA INICIAL 1/2/3. (4, 5 and CONSOLIDADA are now ignored per instructions)
+        const hasInitialQuotas = [1, 2, 3].some((j) => {
           return parseNumStringWithLocalization(getVal(row, `CUOTA INICIAL ${j}`)) > 0;
         });
-        // New format: CUOTA #1..#30. Old format: CUOTA 1..24
-        const maxQuotas = 30;
+        // New format: CUOTA #1..#36. Old format: CUOTA 1..24. Supported up to 36.
+        const maxQuotas = 36;
         const hasNormalQuotas = Array.from({ length: maxQuotas }, (_, i) => i + 1).some((j) =>
           parseNumStringWithLocalization(getValMulti(row, `CUOTA ${j}`, `CUOTA #${j}`)) > 0
         );
-        const hasSiigoRecord = includeSiigo && (
-          parseNumStringWithLocalization(getValMulti(row, 'RECAUDADO SIIGO 2024', 'RECAUDADO REPORTADO MATRIZ')) > 0 ||
-          parseNumStringWithLocalization(getVal(row, 'RECAUDADO SIIGO 2025')) > 0
-        );
+        // SIIGO is disabled for bulk upload per instructions
+        const hasSiigoRecord = false;
 
-        if (!clienteNombre && !cedula && (!createClientsWithoutName || (!hasInitialQuotas && !hasNormalQuotas && !hasSiigoRecord))) {
+        const hasAnyPayments = hasInitialQuotas || hasNormalQuotas || hasSiigoRecord;
+
+        // Skip client/contract creation if:
+        // 1. There is no real ID and no payments recorded (User requirement)
+        // 2. There is no name and no real ID, and the option to create nameless clients is disabled
+        if ((!realCedula && !hasAnyPayments) || (!clienteNombre && !realCedula && !createClientsWithoutName)) {
           summary.rowsProcessed++;
           continue;
         }
 
+        const cedula = realCedula || `SIN_CEDULA_${reference || nomenclature || rowNum}`;
+
         // Determine an effective name if missing
-        const effectiveName = clienteNombre || (cedula ? `CLIENTE_CEDULA_${cedula}` : `CLIENTE_DESCONOCIDO_FILA_${rowNum}`);
+        const effectiveName = clienteNombre || (realCedula ? `CLIENTE_CEDULA_${realCedula}` : `CLIENTE_REF_${reference || nomenclature}`);
 
         // 2. Client Management (Logic: cedula or excelRowId)
         let client = cedula ? clientByCedula.get(cedula) : clientByExcelId.get(excelRowId.toString());
         
+        // Handle Multiple Phones
+        const phoneN1 = getValMulti(row, 'TELEFONO N1', 'Teléfono N1', 'Telefono N1')?.toString().trim();
+        const phoneN2 = getValMulti(row, 'TELEFONO N2', 'Teléfono N2', 'Telefono N2')?.toString().trim();
+        const phoneGeneral = getValMulti(row, 'TELEFONO', 'Teléfono', 'Telefono')?.toString().trim();
+        
+        let phones = [];
+        if (phoneN1) phones.push(phoneN1);
+        if (phoneN2) phones.push(phoneN2);
+        if (phones.length === 0 && phoneGeneral) phones.push(phoneGeneral);
+
         const clientData = {
           name: effectiveName,
           idNumber: cedula,
-          // New format: 'TELEFONO N1', old format: 'TELEFONO'
-          phone: getValMulti(row, 'TELEFONO', 'TELEFONO N1')?.toString(),
-          // New format: 'Comportamiento Cliente', old format: 'COMPORTAMIENTO CLIENTE'
+          phone: phones[0] || undefined, // Keep primary phone for compatibility
+          phones: phones,
+          address: getValMulti(row, 'DIRECCION', 'Dirección')?.toString(),
+          expeditionPlace: getValMulti(row, 'Lugar de expedición', 'LUGAR DE EXPEDICIÓN')?.toString(),
+          email: getValMulti(row, 'CORREO ELECTRONICO', 'Correo electrónico')?.toString(),
           behavior: getValMulti(row, 'COMPORTAMIENTO CLIENTE', 'Comportamiento Cliente'),
           excelRowId: excelRowId,
           tenantId,
@@ -214,101 +257,138 @@ export const importExcel = async (req, res) => {
         }
 
         // 3. Contract Management (Logic: client|lot)
-        const contractKey = `${client._id}|${lot._id}`;
-        let contract = contractMap.get(contractKey);
-        
-        const contractInfo = {
-          client: client._id,
-          lot: lot._id,
-          // New format: 'FECHA CONTRATO (SELECCIONAR)', old: 'FECHA CONTRATO'
-          contractDate: parseExcelDate(getValMulti(row, 'FECHA CONTRATO', 'FECHA CONTRATO (SELECCIONAR)')),
-          // New format: 'NEGOCIACIÓN' (with accent), old: 'NEGOCIACION'
-          negotiation: getValMulti(row, 'NEGOCIACION', 'NEGOCIACIÓN'),
-          appendix: getVal(row, 'OTRO SI'),
-          // New format: 'VALOR TOTAL', old: 'VALOR DEL CONTRATO'
-          totalValue: parseNumStringWithLocalization(getValMulti(row, 'VALOR DEL CONTRATO', 'VALOR TOTAL')),
-          // New format: 'NUMERO DE CUOTAS', old: 'NO. CUOTAS'
-          installmentsCount: parseInt(getValMulti(row, 'NO. CUOTAS', 'NUMERO DE CUOTAS')) || 0,
-          installmentValue: parseNumStringWithLocalization(getVal(row, 'VALOR CUOTA')),
-          paymentDay: parseInt(getVal(row, 'DIA DE PAGO')) || 0,
-          startDate: parseExcelDate(getVal(row, 'FECHA INICIO CUOTAS')),
-          bonus: getVal(row, 'BONO'),
-          bonusValue: parseNumStringWithLocalization(getVal(row, 'VALOR BONO')),
-          // New format: 'ASESOR', old: 'COMERCIAL'
-          commercial: getValMulti(row, 'COMERCIAL', 'ASESOR'),
-          // New format: 'RECAUDADO REPORTADO MATRIZ' maps to Siigo 2024
-          recaudadoSiigo2024: includeSiigo ? parseNumStringWithLocalization(getValMulti(row, 'RECAUDADO SIIGO 2024', 'RECAUDADO REPORTADO MATRIZ')) : 0,
-          recaudadoSiigo2025: includeSiigo ? parseNumStringWithLocalization(getVal(row, 'RECAUDADO SIIGO 2025')) : 0,
-          // New format: 'Proceso Juridico', old: 'REQUERIMIENTO JURIDICO'
-          juridicalRequirement: getValMulti(row, 'REQUERIMIENTO JURIDICO', 'Proceso Juridico'),
-          observations: getVal(row, 'OBSERVACIONES'),
-          excelRowId: excelRowId,
-          tenantId,
-          companyId,
-        };
+        const isFirmado = contratoStatusUpper === 'FIRMADO';
+        const hasContractStatus = contratoStatus && contratoStatusUpper !== 'DISPONIBLE' && contratoStatusUpper !== 'SIN REGISTRO';
 
-        if (!contract) {
-          const newId = new mongoose.Types.ObjectId();
-          contract = { ...contractInfo, _id: newId };
-          contractMap.set(contractKey, contract);
-          contractOps.push({
-            insertOne: { document: contract },
-          });
-          summary.contractsCreated++;
-        } else {
-          contractOps.push({
-            updateOne: {
-              filter: { _id: contract._id },
-              update: { $set: contractInfo },
-            },
-          });
-        }
-        // 4. Quotas Preparation (Logic: Presence in Excel = Paid)
-        contractIdsToClearQuotas.add(contract._id);
+        if (hasContractStatus) {
+          summary.firmadoRows++; // Incrementing this as 'processed contract rows'
+          const contractKey = `${client._id}|${lot._id}`;
+          let contract = contractMap.get(contractKey);
+          
+          const contractInfo = {
+            client: client._id,
+            lot: lot._id,
+            status: contratoStatus,
+            // New format: 'FECHA CONTRATO (SELECCIONAR)', old: 'FECHA CONTRATO'
+            contractDate: parseExcelDate(getValMulti(row, 'FECHA CONTRATO', 'FECHA CONTRATO (SELECCIONAR)')),
+            // New format: 'NEGOCIACIÓN' (with accent), old: 'NEGOCIACION'
+            negotiation: getValMulti(row, 'NEGOCIACION', 'NEGOCIACIÓN'),
+            appendix: getVal(row, 'OTRO SI'),
+            // New format: 'VALOR TOTAL', old: 'VALOR DEL CONTRATO'
+            totalValue: parseNumStringWithLocalization(getValMulti(row, 'VALOR DEL CONTRATO', 'VALOR TOTAL')),
+            // New format: 'NUMERO DE CUOTAS', old: 'NO. CUOTAS'
+            installmentsCount: parseInt(getValMulti(row, 'NO. CUOTAS', 'NUMERO DE CUOTAS')) || 0,
+            installmentValue: parseNumStringWithLocalization(getVal(row, 'VALOR CUOTA')),
+            paymentDay: parseInt(getVal(row, 'DIA DE PAGO')) || 0,
+            startDate: parseExcelDate(getVal(row, 'FECHA INICIO CUOTAS')),
+            bonus: getVal(row, 'BONO'),
+            bonusValue: parseNumStringWithLocalization(getVal(row, 'VALOR BONO')),
+            // New format: 'ASESOR', old: 'COMERCIAL'
+            commercial: getValMulti(row, 'COMERCIAL', 'ASESOR'),
+            recaudadoSiigo2024: parseNumStringWithLocalization(getValMulti(row, 'RECAUDO REPORTADO EN SIIGO 2024', 'RECAUDADO SIIGO 2024')) || 0,
+            recaudadoSiigo2025: parseNumStringWithLocalization(getValMulti(row, 'RECAUDO REPORTADO EN SIIGO 2025', 'RECAUDADO SIIGO 2025')) || 0,
+            revisadoPor: getValMulti(row, 'REVISADO POR'),
+            // New format: 'Proceso Juridico', old: 'REQUERIMIENTO JURIDICO'
+            juridicalRequirement: getValMulti(row, 'REQUERIMIENTO JURIDICO', 'Proceso Juridico'),
+            observations: getVal(row, 'OBSERVACIONES'),
+            excelRowId: excelRowId,
+            tenantId,
+            companyId,
+          };
 
-        // Initial Quotas (1 to 5)
-        // Slot 4: new format uses 'CUOTA INICIAL CONSOLIDADA' as equivalent
-        for (let j = 1; j <= 5; j++) {
-          const quotaKey = j === 4
-            ? getValMulti(row, `CUOTA INICIAL ${j}`, 'CUOTA INICIAL CONSOLIDADA')
-            : getVal(row, `CUOTA INICIAL ${j}`);
-          const val = parseNumStringWithLocalization(quotaKey);
-          if (val > 0) {
-            quotasToInsert.push({
-              tenantId,
-              companyId,
-              contract: contract._id,
-              number: j,
-              type: 'inicial',
-              value: val,
-              status: 'pagado',
-              excelRowId: excelRowId,
+          if (!contract) {
+            const newId = new mongoose.Types.ObjectId();
+            contract = { ...contractInfo, _id: newId };
+            contractMap.set(contractKey, contract);
+            contractOps.push({
+              insertOne: { document: contract },
             });
-            summary.initialQuotasCreated++;
-            summary.quotasMarkedPaid++;
+            summary.contractsCreated++;
+          } else {
+            contractOps.push({
+              updateOne: {
+                filter: { _id: contract._id },
+                update: { $set: contractInfo },
+              },
+            });
+          }
+
+          // 4. Quotas Preparation (Logic: Only for FIRMADO)
+          if (isFirmado) {
+            contractIdsToClearQuotas.add(contract._id);
+
+            // Initial Quotas (1 to 3)
+            for (let j = 1; j <= 3; j++) {
+              const headerKey = `CUOTA INICIAL ${j}`;
+              const quotaKey = getVal(row, headerKey);
+              const val = parseNumStringWithLocalization(quotaKey);
+              
+              if (val > 0) {
+                const rowKeys = Object.keys(row);
+                const qIdx = rowKeys.findIndex(k => {
+                  const kClean = k.toUpperCase().replace(/\s+/g, ' ').trim();
+                  return kClean === headerKey.toUpperCase();
+                });
+                
+                let paymentMethod = undefined;
+                if (qIdx !== -1 && qIdx + 1 < rowKeys.length) {
+                  const nextKey = rowKeys[qIdx + 1];
+                  if (nextKey.toUpperCase().includes('METODO') || nextKey.toUpperCase().includes('PAGO')) {
+                    paymentMethod = row[nextKey];
+                  }
+                }
+
+                quotasToInsert.push({
+                  tenantId,
+                  companyId,
+                  contract: contract._id,
+                  number: j,
+                  type: 'inicial',
+                  value: val,
+                  status: 'pagado',
+                  paymentMethod: paymentMethod,
+                  excelRowId: excelRowId,
+                });
+                summary.initialQuotasCreated++;
+                summary.quotasMarkedPaid++;
+              }
+            }
+
+            // Regular Quotas (1 to 36)
+            for (let j = 1; j <= 36; j++) {
+              const quotaHeader = `CUOTA #${j}`;
+              const quotaVal = getValMulti(row, `CUOTA ${j}`, quotaHeader);
+              const val = parseNumStringWithLocalization(quotaVal);
+              
+              if (val > 0) {
+                const rowKeys = Object.keys(row);
+                const qIdx = rowKeys.findIndex(k => k.toUpperCase().includes(`CUOTA #${j}`) || k.toUpperCase().includes(`CUOTA ${j}`));
+                let paymentMethod = undefined;
+                if (qIdx !== -1 && qIdx + 1 < rowKeys.length) {
+                  const nextKey = rowKeys[qIdx + 1];
+                  if (nextKey.toUpperCase().includes('METODO') || nextKey.toUpperCase().includes('PAGO')) {
+                    paymentMethod = row[nextKey];
+                  }
+                }
+
+                quotasToInsert.push({
+                  tenantId,
+                  companyId,
+                  contract: contract._id,
+                  number: j,
+                  type: 'normal',
+                  value: val,
+                  status: 'pagado',
+                  paymentMethod: paymentMethod,
+                  excelRowId: excelRowId,
+                });
+                summary.normalQuotasCreated++;
+                summary.quotasMarkedPaid++;
+              }
+            }
           }
         }
 
-        // Regular Quotas (1 to 30)
-        // New format: 'CUOTA #N'. Old format: 'CUOTA N'. Both supported.
-        for (let j = 1; j <= 30; j++) {
-          const quotaVal = getValMulti(row, `CUOTA ${j}`, `CUOTA #${j}`);
-          const val = parseNumStringWithLocalization(quotaVal);
-          if (val > 0) {
-            quotasToInsert.push({
-              tenantId,
-              companyId,
-              contract: contract._id,
-              number: j,
-              type: 'normal',
-              value: val,
-              status: 'pagado',
-              excelRowId: excelRowId,
-            });
-            summary.normalQuotasCreated++;
-            summary.quotasMarkedPaid++;
-          }
-        }
 
         summary.rowsProcessed++;
 
@@ -361,122 +441,172 @@ export const importExcel = async (req, res) => {
 export const exportExcel = async (req, res) => {
   try {
     const { tenantId, companyId } = req.user;
+    console.log(`--- Iniciando Exportación Excel (Todos los lotes): Tenant ${tenantId}, Company ${companyId} ---`);
 
-    // 1. Fetch all contracts for this tenant+company and populate their client and lot
-    const contracts = await Contract.find({ tenantId, companyId }).populate('client').populate('lot');
+    // 1. Fetch all Lots
+    const lots = await Lot.find({ tenantId, companyId })
+      .populate({
+        path: 'reservationBy',
+        select: 'name idNumber phone phones email address expeditionPlace behavior excelRowId'
+      })
+      .lean();
     
-    // 2. Prepare data for Excel
+    console.log(`Lotes encontrados: ${lots.length}`);
+
+    // 2. Fetch all Contracts to map to lots
+    const contracts = await Contract.find({ tenantId, companyId })
+      .populate('client')
+      .lean();
+    
+    const contractMap = {};
+    contracts.forEach(c => {
+      if (c.lot) contractMap[c.lot.toString()] = c;
+    });
+
+    // 3. Fetch all Quotas to map to contracts
+    const contractIds = contracts.map(c => c._id);
+    const allQuotas = await Quota.find({ contract: { $in: contractIds } })
+      .sort({ type: 1, number: 1 })
+      .lean();
+    
+    const quotaMap = {};
+    allQuotas.forEach(q => {
+      const cid = q.contract.toString();
+      if (!quotaMap[cid]) quotaMap[cid] = [];
+      quotaMap[cid].push(q);
+    });
+
+    // 4. Prepare data for Excel
     const exportData = [];
     
-    for (const contract of contracts) {
-      const client = contract.client;
-      const lot = contract.lot;
+    // Helpers
+    const emptyIfZero = (val) => (val === 0 || val === null || val === undefined ? '' : val);
+    const emptyIfEmpty = (val) => (val === null || val === undefined ? '' : val);
+    const formatDate = (date) => {
+      if (!date) return '';
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return '';
+      const day = d.getDate().toString().padStart(2, '0');
+      const month = (d.getMonth() + 1).toString().padStart(2, '0');
+      const year = d.getFullYear();
+      return `${month}/${day}/${year}`;
+    };
+
+    for (const lot of lots) {
+      const contract = contractMap[lot._id.toString()];
+      const quotas = contract ? (quotaMap[contract._id.toString()] || []) : [];
+      const client = contract?.client || lot.reservationBy;
       
-      // Fetch quotas for this contract
-      const quotas = await Quota.find({ contract: contract._id }).sort({ type: 1, number: 1 });
-      
-      // Calculations
       const initialQuotas = quotas.filter((q) => q.type === 'inicial');
       const regularQuotas = quotas.filter((q) => q.type === 'normal');
-      
-      const paidQuotasCount = quotas.filter((q) => q.status === 'pagado').length;
-      const pendingQuotasCount = quotas.filter((q) => q.status !== 'pagado').length;
       
       const totalRecaudado = quotas
         .filter((q) => q.status === 'pagado')
         .reduce((sum, q) => sum + (q.value || 0), 0);
         
-      const totalPorRecaudar = quotas
-        .filter((q) => q.status !== 'pagado')
-        .reduce((sum, q) => sum + (q.value || 0), 0);
-        
-      const percentageRecaudo = contract.totalValue > 0 
-        ? (totalRecaudado / contract.totalValue) * 100 
+      const totalPorRecaudar = contract 
+        ? Math.max(0, (contract.totalValue || 0) - totalRecaudado)
         : 0;
         
-      const hasMora = quotas.some((q) => q.status === 'mora');
-      
-      const totalSiigo = (contract.recaudadoSiigo2024 || 0) + (contract.recaudadoSiigo2025 || 0);
-      const porRecaudarSiigo = Math.max(0, contract.totalValue - totalSiigo);
-      const percentageSiigo = contract.totalValue > 0 
-        ? (totalSiigo / contract.totalValue) * 100 
+      const percentageRecaudo = (contract && contract.totalValue > 0)
+        ? ((totalRecaudado / contract.totalValue) * 100).toFixed(2)
+        : 0;
+        
+      const totalSiigo = contract ? ((contract.recaudadoSiigo2024 || 0) + (contract.recaudadoSiigo2025 || 0)) : 0;
+      const porRecaudarSiigo = contract ? Math.max(0, contract.totalValue - totalSiigo) : 0;
+      const percentageRecaudoSiigo = (contract && contract.totalValue > 0)
+        ? ((totalSiigo / contract.totalValue) * 100).toFixed(2)
         : 0;
 
-      // Helper to return empty string if value is 0 or null/undefined
-      const emptyIfZero = (val) => (val === 0 || val === null || val === undefined ? '' : val);
-      const emptyIfEmpty = (val) => (val === null || val === undefined ? '' : val);
-      
-      // Helper to format date as DD-MM-YY
-      const formatDate = (date) => {
-        if (!date) return '';
-        const d = new Date(date);
-        if (isNaN(d.getTime())) return '';
-        const day = d.getDate().toString().padStart(2, '0');
-        const month = (d.getMonth() + 1).toString().padStart(2, '0');
-        const year = d.getFullYear().toString().slice(-2);
-        return `${day}-${month}-${year}`;
-      };
+      // Create row as an array for AOA (Array of Arrays)
+      const rowArr = [
+        emptyIfEmpty(lot.reference),
+        lot.excelRowId || contract?.excelRowId || client?.excelRowId || '',
+        emptyIfEmpty(lot.nomenclature),
+        emptyIfZero(lot.area),
+        contract ? formatDate(contract.contractDate) : '',
+        contract ? (contract.status || 'FIRMADO') : 'DISPONIBLE', // CONTRATOS
+        contract ? emptyIfEmpty(contract.appendix) : '',
+        contract ? emptyIfEmpty(contract.negotiation) : '',
+        contract ? emptyIfZero(contract.totalValue) : emptyIfZero(lot.price),
+        contract ? emptyIfEmpty(contract.commercial) : '',
+        emptyIfEmpty(client?.idNumber),
+        emptyIfEmpty(client?.expeditionPlace),
+        emptyIfEmpty(client?.name),
+        emptyIfEmpty(client?.address),
+        emptyIfEmpty(client?.email),
+        client?.phones?.[0] || emptyIfEmpty(client?.phone),
+        client?.phones?.[1] || '',
+        contract ? emptyIfZero(contract.installmentsCount) : '', // NUMERO DE CUOTAS 
+        contract ? formatDate(contract.startDate) : '',
+        contract ? emptyIfZero(contract.installmentValue) : '',
+        contract ? emptyIfZero(contract.paymentDay) : '',
+        contract ? emptyIfEmpty(contract.bonus) : '',
+        contract ? emptyIfZero(contract.bonusValue) : '',
+        contract ? emptyIfZero(contract.initialQuotasCount || initialQuotas.length) : '', // # CUOTA INICIAL
+      ];
 
-      const row = {
-        'No.': contract.excelRowId || client?.excelRowId || lot?.excelRowId,
-        'ETAPA': emptyIfEmpty(lot?.stage),
-        'NOMENCLATURA': emptyIfEmpty(lot?.nomenclature),
-        'LOTE': emptyIfEmpty(lot?.lotNumber),
-        'METROS 2': emptyIfZero(lot?.area),
-        'CEDULA': emptyIfEmpty(client?.idNumber),
-        'CLIENTE': emptyIfEmpty(client?.name),
-        'FECHA CONTRATO': formatDate(contract.contractDate),
-        'NEGOCIACION': emptyIfEmpty(contract.negotiation),
-        'OTRO SI': emptyIfEmpty(contract.appendix),
-        'FECHA INICIO CUOTAS': formatDate(contract.startDate),
-        'VALOR DEL CONTRATO': emptyIfZero(contract.totalValue),
-        'NO. CUOTAS': emptyIfZero(contract.installmentsCount),
-        'VALOR CUOTA': emptyIfZero(contract.installmentValue),
-        'LOTE.1': emptyIfEmpty(lot?.lotNumber),
-        'DIA DE PAGO': emptyIfZero(contract.paymentDay),
-        'TELEFONO': emptyIfEmpty(client?.phone),
-        'BONO': emptyIfEmpty(contract.bonus),
-        '# CUOTA INICIAL': emptyIfZero(initialQuotas.length),
-        'VALOR BONO': emptyIfZero(contract.bonusValue),
-      };
-
-      // Add Initial Quotas (fixed columns 1-5)
-      for (let j = 1; j <= 5; j++) {
+      // Add Initial Quotas (1 to 3) with METODO DE PAGO
+      for (let j = 1; j <= 3; j++) {
         const q = initialQuotas.find((iq) => iq.number === j);
-        row[`CUOTA INICIAL ${j}`] = q ? emptyIfZero(q.value) : '';
+        rowArr.push(q ? emptyIfZero(q.value) : '');
+        rowArr.push(q?.paymentMethod || ''); 
       }
+      
+      const totalInitialPaid = initialQuotas.reduce((sum, q) => sum + (q.value || 0), 0);
+      rowArr.push(emptyIfZero(totalInitialPaid)); // CUOTA INICIAL CONSOLIDADA
+      rowArr.push(''); // METODO DE PAGO (Consolidado)
 
-      // Add Regular Quotas (fixed columns 1-24)
-      for (let j = 1; j <= 24; j++) {
+      // Add Regular Quotas (#1 to #30) with METODO DE PAGO
+      for (let j = 1; j <= 30; j++) {
         const q = regularQuotas.find((rq) => rq.number === j);
-        row[`CUOTA ${j}`] = q ? emptyIfZero(q.value) : '';
+        rowArr.push(q ? emptyIfZero(q.value) : '');
+        rowArr.push(q?.paymentMethod || '');
       }
 
-      // Add trailing calculated fields
-      row['CUOTAS PAGADAS'] = emptyIfZero(paidQuotasCount);
-      row['CUOTAS PENDIENTES'] = emptyIfZero(pendingQuotasCount);
-      row['RECAUDADO'] = emptyIfZero(totalRecaudado);
-      row['POR RECAUDAR'] = emptyIfZero(totalPorRecaudar);
-      row['% RECAUDO'] = emptyIfZero(percentageRecaudo);
-      row['ESTADO DE MORA'] = hasMora ? 'EN MORA' : '';
-      row['RECAUDADO SIIGO 2024'] = emptyIfZero(contract.recaudadoSiigo2024);
-      row['RECAUDADO SIIGO 2025'] = emptyIfZero(contract.recaudadoSiigo2025);
-      row['TOTAL RECAUDADO SIIGO'] = emptyIfZero(totalSiigo);
-      row['POR RECAUDAR EN SIIGO'] = emptyIfZero(porRecaudarSiigo);
-      row['% RECAUDO.1'] = emptyIfZero(percentageSiigo);
-      row['COMERCIAL'] = emptyIfEmpty(contract.commercial);
-      row['COMPORTAMIENTO CLIENTE'] = emptyIfEmpty(client?.behavior);
-      row['REQUERIMIENTO JURIDICO'] = emptyIfEmpty(contract.juridicalRequirement);
-      row['OBSERVACIONES'] = emptyIfEmpty(contract.observations);
+      // Add trailing fields
+      rowArr.push(
+        contract ? emptyIfZero(totalRecaudado) : '', // RECAUDADO
+        contract ? emptyIfZero(totalPorRecaudar) : '', // POR RECAUDAR
+        contract ? emptyIfZero(totalSiigo) : '', // RECAUDADO REPORTADO MATRIZ
+        contract ? emptyIfZero(porRecaudarSiigo) : '', // POR RECAUDAR REPORTADO MATRIZ
+        contract ? emptyIfZero(contract.recaudadoSiigo2024) : '', // RECAUDO REPORTADO EN SIIGO 2024
+        contract ? emptyIfZero(contract.recaudadoSiigo2025) : '', // RECAUDO REPORTADO EN SIIGO 2025
+        contract ? emptyIfZero(totalSiigo) : '', // RECAUDO REPORTADO EN SIIGO A LA FECHA
+        contract ? emptyIfZero(porRecaudarSiigo) : '', // POR RECAUDAR SIIGO
+        contract ? `${percentageRecaudoSiigo}%` : '', // % RECAUDO
+        contract ? emptyIfEmpty(contract.revisadoPor) : '', // REVISADO POR
+        emptyIfEmpty(client?.behavior),
+        contract ? emptyIfEmpty(contract.juridicalRequirement) : '',
+        contract ? `${percentageRecaudo}%` : '', // PORCENTAJE%
+        contract ? emptyIfEmpty(contract.observations) : (lot.status !== 'disponible' ? emptyIfEmpty(lot.reservationDetails) : '')
+      );
 
-      exportData.push(row);
+      exportData.push(rowArr);
     }
     
-    // Sort by ID to match original order if possible
-    exportData.sort((a, b) => (a['No.'] || 0) - (b['No.'] || 0));
+    // Sort by row number (#) or Reference if # is missing
+    exportData.sort((a, b) => {
+      const valA = parseInt(a[1]) || a[0] || '';
+      const valB = parseInt(b[1]) || b[0] || '';
+      if (typeof valA === 'number' && typeof valB === 'number') return valA - valB;
+      return String(valA).localeCompare(String(valB));
+    });
+
+    // Define the headers exactly as requested
+    const headers = [
+      'Referencia', '#', 'Nomenclatura', 'AREA TOTAL', 'FECHA CONTRATO (SELECCIONAR)', 'CONTRATOS', 'OTRO SI', 'NEGOCIACIÓN', 'VALOR TOTAL', 'ASESOR', 'CEDULA', 'LUGAR DE EXPEDICIÓN', 'NOMBRE', 'DIRECCIÓN', 'CORREO ELECTRONICO', 'TELEFONO N1', 'TELEFONO N2', 'NUMERO DE CUOTAS ', 'FECHA INICIO CUOTAS', 'VALOR CUOTA', 'DIA DE PAGO', 'BONO', 'VALOR BONO', '# CUOTA INICIAL', 'CUOTA INICIAL 1', 'METODO DE PAGO', 'CUOTA INICIAL 2', 'METODO DE PAGO', 'CUOTA INICIAL 3', 'METODO DE PAGO', 'CUOTA INICIAL CONSOLIDADA', 'METODO DE PAGO'
+    ];
+    for (let j = 1; j <= 30; j++) {
+      headers.push(`CUOTA #${j}`, 'METODO DE PAGO');
+    }
+    headers.push(
+      'RECAUDADO', 'POR RECAUDAR', 'RECAUDADO REPORTADO MATRIZ', 'POR RECAUDAR REPORTADO MATRIZ', 'RECAUDO REPORTADO EN SIIGO 2024', 'RECAUDO REPORTADO EN SIIGO 2025', 'RECAUDO REPORTADO EN SIIGO A LA FECHA', 'POR RECAUDAR SIIGO', '% RECAUDO', 'REVISADO POR', 'Comportamiento Cliente', 'Proceso Juridico', 'PORCENTAJE%', 'OBSERVACIONES'
+    );
 
     // 3. Create workbook and sheet
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    console.log('Generando archivo XLSX con todos los lotes...');
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...exportData]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Datos Exportados');
     
@@ -484,9 +614,11 @@ export const exportExcel = async (req, res) => {
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
     
     // 5. Send file with proper headers
+    console.log('Enviando respuesta...');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename=export-cobranza.xlsx');
     res.send(buffer);
+    console.log('--- Exportación completada con éxito ---');
     
   } catch (error) {
     console.error('Export error:', error);
@@ -507,63 +639,32 @@ export const exportExcel = async (req, res) => {
  */
 export const downloadTemplate = async (req, res) => {
   try {
-    // Define the headers and sample data in the exact order as exportExcel
-    const row = {
-      'No.': 1,
-      'ETAPA': 'Etapa 1',
-      'NOMENCLATURA': 'Mz A Lote 5',
-      'LOTE': '5',
-      'METROS 2': 100,
-      'CEDULA': '12345678',
-      'CLIENTE': 'Juan Pérez',
-      'FECHA CONTRATO': '15-01-24',
-      'NEGOCIACION': 'Crédito Directo',
-      'OTRO SI': '',
-      'FECHA INICIO CUOTAS': '01-02-24',
-      'VALOR DEL CONTRATO': 25000000,
-      'NO. CUOTAS': 24,
-      'VALOR CUOTA': 1000000,
-      'LOTE.1': '5',
-      'DIA DE PAGO': 5,
-      'TELEFONO': '3101234567',
-      'BONO': 'Bono Fin de Año',
-      '# CUOTA INICIAL': 5,
-      'VALOR BONO': 500000,
-    };
-
-    // Add Initial Quotas (fixed columns 1-5)
-    for (let j = 1; j <= 5; j++) {
-      row[`CUOTA INICIAL ${j}`] = 200000;
+    // Define the headers exactly as in exportExcel
+    const headers = [
+      'Referencia', '#', 'Nomenclatura', 'AREA TOTAL', 'FECHA CONTRATO (SELECCIONAR)', 'CONTRATOS', 'OTRO SI', 'NEGOCIACIÓN', 'VALOR TOTAL', 'ASESOR', 'CEDULA', 'LUGAR DE EXPEDICIÓN', 'NOMBRE', 'DIRECCIÓN', 'CORREO ELECTRONICO', 'TELEFONO N1', 'TELEFONO N2', 'NUMERO DE CUOTAS ', 'FECHA INICIO CUOTAS', 'VALOR CUOTA', 'DIA DE PAGO', 'BONO', 'VALOR BONO', '# CUOTA INICIAL', 'CUOTA INICIAL 1', 'METODO DE PAGO', 'CUOTA INICIAL 2', 'METODO DE PAGO', 'CUOTA INICIAL 3', 'METODO DE PAGO', 'CUOTA INICIAL CONSOLIDADA', 'METODO DE PAGO'
+    ];
+    for (let j = 1; j <= 30; j++) {
+      headers.push(`CUOTA #${j}`, 'METODO DE PAGO');
     }
+    headers.push(
+      'RECAUDADO', 'POR RECAUDAR', 'RECAUDADO REPORTADO MATRIZ', 'POR RECAUDAR REPORTADO MATRIZ', 'RECAUDO REPORTADO EN SIIGO 2024', 'RECAUDO REPORTADO EN SIIGO 2025', 'RECAUDO REPORTADO EN SIIGO A LA FECHA', 'POR RECAUDAR SIIGO', '% RECAUDO', 'REVISADO POR', 'Comportamiento Cliente', 'Proceso Juridico', 'PORCENTAJE%', 'OBSERVACIONES'
+    );
 
-    // Add Regular Quotas (fixed columns 1-24)
-    for (let j = 1; j <= 24; j++) {
-      row[`CUOTA ${j}`] = j <= 6 ? 1000000 : '';
+    // Sample data row
+    const row = [
+      'REF-001', 1, 'Mz A Lote 5', 100, '15-01-24', 'FIRMADO', '', 'Crédito Directo', 25000000, 'Asesor 1', '12345678', 'Bogotá', 'Juan Pérez', 'Calle 123', 'juan@email.com', '3101234567', '', 24, '01-02-24', 1000000, 5, 'Bono 1', 500000, 3, 200000, 'Efectivo', 200000, 'Transferencia', 200000, 'Efectivo', 600000, ''
+    ];
+    // Sample quotas
+    for (let j = 1; j <= 30; j++) {
+      row.push(j <= 6 ? 1000000 : '', j <= 6 ? 'Efectivo' : '');
     }
+    // Sample trailing fields
+    row.push(6000000, 19000000, 0, 19000000, 0, 0, 0, 19000000, '0%', 'REVISOR 1', 'Excelente', '', 24, 'Cliente puntual');
 
-    // Add trailing calculated and additional fields
-    Object.assign(row, {
-      'CUOTAS PAGADAS': '',
-      'CUOTAS PENDIENTES': '',
-      'RECAUDADO': '',
-      'POR RECAUDAR': '',
-      '% RECAUDO': '',
-      'ESTADO DE MORA': '',
-      'RECAUDADO SIIGO 2024': 0,
-      'RECAUDADO SIIGO 2025': 0,
-      'TOTAL RECAUDADO SIIGO': '',
-      'POR RECAUDAR EN SIIGO': '',
-      '% RECAUDO.1': '',
-      'COMERCIAL': 'Asesor 1',
-      'COMPORTAMIENTO CLIENTE': 'Excelente',
-      'REQUERIMIENTO JURIDICO': '',
-      'OBSERVACIONES': 'Cliente puntual',
-    });
-
-    const templateData = [row];
+    const templateData = [headers, row];
 
     // Create workbook and sheet
-    const worksheet = XLSX.utils.json_to_sheet(templateData);
+    const worksheet = XLSX.utils.aoa_to_sheet(templateData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla Importación');
     
