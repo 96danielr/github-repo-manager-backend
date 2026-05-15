@@ -10,72 +10,61 @@ export const checkLotExpirations = async (tenantId, companyId) => {
   try {
     const now = new Date();
     
-    // 1. Release 'apartado' lots older than 5 days
+    // 1. Release expired lots (using expiresAt if available, fallback to reservedAt)
     const fiveDaysAgo = new Date(now);
     fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
 
-    const expiredApartados = await Lot.find({
-      tenantId,
-      companyId,
-      status: 'apartado',
-      reservedAt: { $lt: fiveDaysAgo },
-    });
-
-    for (const lot of expiredApartados) {
-      const oldReservedBy = lot.reservationBy;
-      lot.status = 'disponible';
-      lot.reservedAt = undefined;
-      lot.reservationBy = undefined;
-      await lot.save();
-
-      // Log the automatic release
-      await logAudit({ tenant: { id: tenantId, companyId, role: 'system' } }, {
-        action: 'AUTO_RELEASE_LOT',
-        module: 'LOTS',
-        targetId: lot._id,
-        details: { 
-          reason: 'Apartado expired (5 days)', 
-          previousStatus: 'apartado',
-          client: oldReservedBy
-        }
-      });
-    }
-
-    // 2. Release 'separado' lots older than 1 month (30 days)
-    // The user mentioned: "este tiene una validez hasta de 1 mes"
     const oneMonthAgo = new Date(now);
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
-    const expiredSeparados = await Lot.find({
+    const expiredLots = await Lot.find({
       tenantId,
       companyId,
-      status: 'separado',
-      reservedAt: { $lt: oneMonthAgo },
+      status: { $in: ['apartado', 'separado'] },
+      $or: [
+        { expiresAt: { $lt: now } },
+        { 
+          $and: [
+            { expiresAt: { $exists: false } },
+            {
+              $or: [
+                { status: 'apartado', reservedAt: { $lt: fiveDaysAgo } },
+                { status: 'separado', reservedAt: { $lt: oneMonthAgo } }
+              ]
+            }
+          ]
+        }
+      ]
     });
 
-    for (const lot of expiredSeparados) {
+    for (const lot of expiredLots) {
+      const oldStatus = lot.status;
       const oldReservedBy = lot.reservationBy;
+      
       lot.status = 'disponible';
       lot.reservedAt = undefined;
+      lot.expiresAt = undefined;
       lot.reservationBy = undefined;
+      lot.reservationDetails = undefined;
       await lot.save();
 
-      await logAudit({ tenant: { id: tenantId, companyId, role: 'system' } }, {
+      // Log the automatic release
+      await logAudit({ user: { tenantId, companyId, role: 'system' } }, {
         action: 'AUTO_RELEASE_LOT',
         module: 'LOTS',
         targetId: lot._id,
         details: { 
-          reason: 'Separado expired (1 month)', 
-          previousStatus: 'separado',
+          reason: `${oldStatus} expired`, 
+          previousStatus: oldStatus,
           client: oldReservedBy
         }
       });
     }
 
     return {
-      releasedApartados: expiredApartados.length,
-      releasedSeparados: expiredSeparados.length,
+      releasedLots: expiredLots.length,
     };
+
   } catch (error) {
     console.error('Error in checkLotExpirations:', error);
     return { error: error.message };

@@ -354,13 +354,24 @@ export const importExcel = async (req, res) => {
               }
             }
 
-            // Regular Quotas (1 to 36)
-            for (let j = 1; j <= 36; j++) {
+            // Regular Quotas (Process all up to installmentsCount)
+            const installmentsCount = contractInfo.installmentsCount || 0;
+            const installmentValue = contractInfo.installmentValue || 0;
+            const startDate = contractInfo.startDate || new Date();
+            const paymentDay = contractInfo.paymentDay;
+
+            for (let j = 1; j <= installmentsCount; j++) {
               const quotaHeader = `CUOTA #${j}`;
               const quotaVal = getValMulti(row, `CUOTA ${j}`, quotaHeader);
-              const val = parseNumStringWithLocalization(quotaVal);
+              const valFromExcel = parseNumStringWithLocalization(quotaVal);
               
-              if (val > 0) {
+              const dueDate = new Date(startDate);
+              dueDate.setMonth(dueDate.getMonth() + (j - 1));
+              if (paymentDay && paymentDay >= 1 && paymentDay <= 31) {
+                dueDate.setDate(paymentDay);
+              }
+
+              if (valFromExcel > 0) {
                 const rowKeys = Object.keys(row);
                 const qIdx = rowKeys.findIndex(k => k.toUpperCase().includes(`CUOTA #${j}`) || k.toUpperCase().includes(`CUOTA ${j}`));
                 let paymentMethod = undefined;
@@ -377,15 +388,31 @@ export const importExcel = async (req, res) => {
                   contract: contract._id,
                   number: j,
                   type: 'normal',
-                  value: val,
+                  value: valFromExcel,
+                  dueDate,
                   status: 'pagado',
                   paymentMethod: paymentMethod,
                   excelRowId: excelRowId,
                 });
                 summary.normalQuotasCreated++;
                 summary.quotasMarkedPaid++;
+              } else {
+                // Generate as PENDING if not in Excel but within installmentsCount
+                quotasToInsert.push({
+                  tenantId,
+                  companyId,
+                  contract: contract._id,
+                  number: j,
+                  type: 'normal',
+                  value: installmentValue,
+                  dueDate,
+                  status: 'pendiente',
+                  excelRowId: excelRowId,
+                });
+                summary.normalQuotasCreated++;
               }
             }
+
           }
         }
 

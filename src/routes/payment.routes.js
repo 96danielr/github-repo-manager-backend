@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { getPayments, approvePayment, rejectPayment, registerManualPayment } from '../controllers/payment.controller.js';
+import { getPayments, approvePayment, rejectPayment, registerManualPayment, resendReceipt } from '../controllers/payment.controller.js';
 import { protect, checkPermission } from '../middleware/auth.js';
 import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -37,6 +37,12 @@ router.put('/:id/approve',
   checkPermission(PERMISSIONS.PAGOS_APPROVE), 
   approvePayment
 );
+router.post('/:id/resend-receipt', 
+  companyMiddleware, 
+  checkPermission(PERMISSIONS.PAGOS_APPROVE), 
+  resendReceipt
+);
+
 router.put('/:id/reject', 
   companyMiddleware, 
   checkPermission(PERMISSIONS.PAGOS_REJECT), 

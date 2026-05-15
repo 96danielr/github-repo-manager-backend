@@ -14,6 +14,7 @@ export const createLot = async (req, res, next) => {
 
     const { 
       stage, 
+      manzana,
       nomenclature, 
       lotNumber, 
       area, 
@@ -25,6 +26,7 @@ export const createLot = async (req, res, next) => {
 
     const lot = await Lot.create({
       stage,
+      manzana,
       nomenclature,
       lotNumber,
       area,
@@ -168,8 +170,9 @@ export const getLot = async (req, res, next) => {
     const lot = await Lot.findById(req.params.id)
       .populate({
         path: 'sellerId',
-        populate: { path: 'accountId', select: 'fullName' },
+        populate: { path: 'accountId', select: 'fullName email' },
       })
+      .populate('reservationBy')
       .lean();
 
     if (!lot) {
@@ -206,6 +209,7 @@ export const updateLot = async (req, res, next) => {
       req.params.id, 
       { 
         stage, 
+        manzana,
         nomenclature, 
         lotNumber, 
         area, 
@@ -341,6 +345,8 @@ export const sellLot = async (req, res, next) => {
       startDate,
       negotiation = 'Venta Directa',
       sellerId,
+      bonus = '',
+      bonusValue = 0,
     } = req.body;
 
     const effectiveSellerId = sellerId || (role === 'vendedor' ? userId : null);
@@ -385,7 +391,9 @@ export const sellLot = async (req, res, next) => {
       }
     }
 
-    const finalTotalValue = totalValue || lot.price || 0;
+    const bonusValueParsed = parseFloat(bonusValue) || 0;
+    const baseTotalValue = totalValue || lot.price || 0;
+    const finalTotalValue = baseTotalValue - bonusValueParsed;
 
     // 2. Initial Calculations
     const initialAmountTotal = roundMoney(finalTotalValue * (initialQuotaPercentage / 100));
@@ -410,6 +418,8 @@ export const sellLot = async (req, res, next) => {
       startDate: startDate || new Date(),
       negotiation,
       sellerId: effectiveSellerId,
+      bonus,
+      bonusValue: bonusValueParsed,
       status: 'ACTIVO',
     });
 
@@ -584,7 +594,7 @@ export const reserveLot = async (req, res, next) => {
 
     const { id } = req.params;
     const { tenantId, companyId, userId } = req.user;
-    const { type, clientId, clientData, observations, amount } = req.body;
+    const { type, clientId, clientData, observations, amount, expirationDays } = req.body;
 
     if (!['apartado', 'separado'].includes(type)) {
       return res.status(400).json({ success: false, message: 'Tipo de reserva inválido' });
@@ -592,15 +602,27 @@ export const reserveLot = async (req, res, next) => {
 
     const lot = await Lot.findById(id);
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
-    if (lot.status !== 'disponible') {
-      return res.status(400).json({ success: false, message: 'El lote no está disponible para reserva' });
+
+    // Check if lot is already reserved/sold
+    if (lot.status === 'vendido') {
+      return res.status(400).json({ success: false, message: 'El lote ya está vendido' });
+    }
+
+    // Logic for transition from 'separado' to 'apartado' for the same client
+    const isUpgrade = lot.status === 'separado' && type === 'apartado' && clientId && lot.reservationBy?.toString() === clientId;
+
+    if (lot.status !== 'disponible' && !isUpgrade) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `El lote ya se encuentra en estado '${lot.status}' y no puede ser ${type === 'separado' ? 'separado' : 'apartado'} por otro cliente o nuevamente.` 
+      });
     }
 
     // 1. Get or Create Client
     let client;
     if (clientId) {
       client = await Client.findOne({ _id: clientId, tenantId, companyId });
-      if (!client) return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
+      if (!client) return res.status(404).json({ success: false, message: 'Cliente seleccionado no existe' });
     } else if (clientData) {
       if (clientData.idNumber) {
         client = await Client.findOne({ idNumber: clientData.idNumber, tenantId, companyId });
@@ -625,8 +647,13 @@ export const reserveLot = async (req, res, next) => {
     }
 
     // 3. Update Lot
+    const days = parseInt(expirationDays) || (type === 'separado' ? 30 : 5);
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + days);
+
     lot.status = type;
     lot.reservedAt = new Date();
+    lot.expiresAt = expiresAt;
     lot.reservationBy = client._id;
     lot.reservationDetails = observations;
     lot.sellerId = userId;
@@ -655,8 +682,7 @@ export const reserveLot = async (req, res, next) => {
 export const releaseLot = async (req, res, next) => {
   try {
     const { id } = req.params;
-    // Permiso ya validado por middleware
-
+    const { reason, observations } = req.body;
 
     const lot = await Lot.findById(id);
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
@@ -664,6 +690,7 @@ export const releaseLot = async (req, res, next) => {
     const previousStatus = lot.status;
     lot.status = 'disponible';
     lot.reservedAt = undefined;
+    lot.expiresAt = undefined;
     lot.reservationBy = undefined;
     lot.reservationDetails = undefined;
     lot.sellerId = undefined;

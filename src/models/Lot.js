@@ -17,6 +17,10 @@ const lotSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  manzana: {
+    type: String,
+    trim: true,
+  },
   nomenclature: {
     type: String,
     trim: true,
@@ -44,10 +48,12 @@ const lotSchema = new mongoose.Schema({
     default: 'disponible',
   },
   reservedAt: Date,
+  expiresAt: Date,
   reservationBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Client',
   },
+
   reservationDetails: {
     type: String,
   },

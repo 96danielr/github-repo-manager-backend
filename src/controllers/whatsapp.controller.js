@@ -2,6 +2,7 @@ import { whatsappService } from '../services/whatsapp.service.js';
 import Conversation from '../models/Conversation.js';
 import Message from '../models/Message.js';
 import Client from '../models/Client.js';
+import Company from '../models/Company.js';
 import AppError from '../utils/AppError.js';
 
 /**
@@ -52,6 +53,15 @@ export const handleWebhook = async (req, res) => {
         const messageData = body.entry[0].changes[0].value.messages[0];
         const waId = messageData.from; // Phone number with country code
         const metadata = body.entry[0].changes[0].value.metadata;
+        const phoneId = metadata.phone_number_id;
+
+        // Find company by phone ID
+        const company = await Company.findOne({ 'integrations.whatsappPhoneId': phoneId });
+        if (!company) {
+          console.warn('No company found for phone ID:', phoneId);
+          return res.status(200).send('EVENT_RECEIVED'); // ignore
+        }
+        const tenantId = company.tenantId;
 
         console.log(`Incoming message from: ${waId}`);
 
@@ -76,6 +86,7 @@ export const handleWebhook = async (req, res) => {
         const last10Digits = waId.slice(-10);
         
         const client = await Client.findOne({ 
+          tenantId,
           phone: { $regex: last10Digits }
         });
 
@@ -159,11 +170,22 @@ export const sendMessage = async (req, res, next) => {
       client = await Client.findOne({ phone: { $regex: last10Digits } });
     }
 
+    const company = await Company.findOne({ tenantId });
+    const waConfig = company?.integrations?.whatsappConnectedAt ? {
+      accessToken: company.integrations.whatsappAccessToken,
+      phoneNumberId: company.integrations.whatsappPhoneId,
+      wabaId: company.integrations.whatsappWabaId
+    } : {
+      accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+      wabaId: process.env.WHATSAPP_WABA_ID
+    };
+
     let result;
     if (templateName) {
-      result = await whatsappService.sendTemplateMessage(phone, templateName, 'es', components);
+      result = await whatsappService.sendTemplateMessage(waConfig, phone, templateName, 'es', components);
     } else {
-      result = await whatsappService.sendTextMessage(phone, text);
+      result = await whatsappService.sendTextMessage(waConfig, phone, text);
     }
 
     const waId = whatsappService.formatPhoneNumber(phone);
@@ -247,12 +269,27 @@ export const getConversations = async (req, res, next) => {
   }
 };
 
-/**
- * Get all approved message templates
- */
+export const getConfig = async (req, res, next) => {
+  try {
+    res.status(200).json({ success: true, data: { appId: process.env.META_APP_ID } });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getTemplates = async (req, res, next) => {
   try {
-    const templates = await whatsappService.getTemplates();
+    const company = await Company.findOne({ tenantId: req.user.tenantId });
+    const waConfig = company?.integrations?.whatsappConnectedAt ? {
+      accessToken: company.integrations.whatsappAccessToken,
+      phoneNumberId: company.integrations.whatsappPhoneId,
+      wabaId: company.integrations.whatsappWabaId
+    } : {
+      accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+      wabaId: process.env.WHATSAPP_WABA_ID
+    };
+    const templates = await whatsappService.getTemplates(waConfig);
     res.status(200).json({ success: true, data: templates });
   } catch (error) {
     next(error);
@@ -263,7 +300,17 @@ export const getTemplates = async (req, res, next) => {
  */
 export const createTemplate = async (req, res, next) => {
   try {
-    const result = await whatsappService.createTemplate(req.body);
+    const company = await Company.findOne({ tenantId: req.user.tenantId });
+    const waConfig = company?.integrations?.whatsappConnectedAt ? {
+      accessToken: company.integrations.whatsappAccessToken,
+      phoneNumberId: company.integrations.whatsappPhoneId,
+      wabaId: company.integrations.whatsappWabaId
+    } : {
+      accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+      wabaId: process.env.WHATSAPP_WABA_ID
+    };
+    const result = await whatsappService.createTemplate(waConfig, req.body);
     res.status(200).json({ success: true, data: result });
   } catch (error) {
     next(error);
@@ -276,8 +323,153 @@ export const createTemplate = async (req, res, next) => {
 export const deleteTemplate = async (req, res, next) => {
   try {
     const { name } = req.params;
-    const result = await whatsappService.deleteTemplate(name);
+    const company = await Company.findOne({ tenantId: req.user.tenantId });
+    const waConfig = company?.integrations?.whatsappConnectedAt ? {
+      accessToken: company.integrations.whatsappAccessToken,
+      phoneNumberId: company.integrations.whatsappPhoneId,
+      wabaId: company.integrations.whatsappWabaId
+    } : {
+      accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+      phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+      wabaId: process.env.WHATSAPP_WABA_ID
+    };
+    const result = await whatsappService.deleteTemplate(waConfig, name);
     res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const connect = async (req, res, next) => {
+  try {
+    const { code, wabaId: passedWabaId, phoneNumberId: passedPhoneNumberId } = req.body;
+    const { tenantId } = req.user;
+    
+    // Determine the company for this tenant
+    const company = await Company.findOne({ tenantId });
+    if (!company) return next(new AppError('Empresa no encontrada', 404));
+
+    const appId = process.env.META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+    if (!appId || !appSecret) {
+      return next(new AppError('META_APP_ID y META_APP_SECRET son requeridos en el servidor', 500));
+    }
+
+    let accessToken;
+    const isAccessToken = code.startsWith('EA');
+    if (isAccessToken) {
+      accessToken = code;
+    } else {
+      const tokenRes = await fetch(
+        `https://graph.facebook.com/v18.0/oauth/access_token?${new URLSearchParams({
+          client_id: appId,
+          client_secret: appSecret,
+          code,
+        }).toString()}`
+      );
+      const tokenData = await tokenRes.json();
+      if (tokenData.error) {
+        return next(new AppError(`Error de autenticación: ${tokenData.error.message}`, 400));
+      }
+      accessToken = tokenData.access_token;
+    }
+
+    let wabaId = passedWabaId || '';
+    let phoneNumberId = passedPhoneNumberId || '';
+    let displayPhoneNumber = '';
+    let verifiedName = '';
+
+    // Simplified Fallback logic
+    if (!wabaId || !phoneNumberId || wabaId === phoneNumberId) {
+      try {
+        const debugRes = await fetch(`https://graph.facebook.com/v18.0/debug_token?input_token=${accessToken}&access_token=${appId}|${appSecret}`);
+        const debugData = await debugRes.json();
+        if (debugData.data?.granular_scopes) {
+          for (const scope of debugData.data.granular_scopes) {
+            if (scope.scope === 'whatsapp_business_management' && scope.target_ids?.length) {
+              wabaId = scope.target_ids[0];
+            }
+            if (scope.scope === 'whatsapp_business_messaging' && scope.target_ids?.length) {
+              phoneNumberId = scope.target_ids[0];
+            }
+          }
+        }
+      } catch (err) {}
+    }
+
+    if (!wabaId || !phoneNumberId || wabaId === phoneNumberId) {
+       try {
+         const wabaRes = await fetch(`https://graph.facebook.com/v18.0/me?fields=whatsapp_business_accounts`, { headers: { Authorization: `Bearer ${accessToken}` } });
+         const wabaData = await wabaRes.json();
+         const accounts = wabaData.whatsapp_business_accounts?.data || wabaData.data;
+         if (accounts && accounts.length > 0) {
+           if (!wabaId || wabaId === phoneNumberId) wabaId = accounts[0].id;
+           const phoneRes = await fetch(`https://graph.facebook.com/v18.0/${wabaId}/phone_numbers?fields=display_phone_number,verified_name,id`, { headers: { Authorization: `Bearer ${accessToken}` } });
+           const phoneData = await phoneRes.json();
+           if (phoneData.data && phoneData.data.length > 0) {
+             phoneNumberId = phoneData.data[0].id;
+           }
+         }
+       } catch (err) {}
+    }
+
+    if (phoneNumberId) {
+      try {
+        const phoneRes = await fetch(`https://graph.facebook.com/v18.0/${phoneNumberId}?fields=display_phone_number,verified_name`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const phoneData = await phoneRes.json();
+        if (phoneData.display_phone_number) {
+          displayPhoneNumber = phoneData.display_phone_number;
+          verifiedName = phoneData.verified_name || '';
+        }
+      } catch (err) {}
+    }
+
+    if (!wabaId || !phoneNumberId) {
+      return next(new AppError('No se pudo identificar tu cuenta o número de WhatsApp.', 400));
+    }
+
+    // Subscribe to webhooks
+    try {
+      await fetch(`https://graph.facebook.com/v18.0/${wabaId}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+    } catch(err) {}
+
+    company.integrations = {
+      ...(company.integrations || {}),
+      whatsappEnabled: true,
+      whatsappWabaId: wabaId,
+      whatsappPhoneId: phoneNumberId,
+      whatsappAccessToken: accessToken,
+      whatsappDisplayPhone: displayPhoneNumber,
+      whatsappVerifiedName: verifiedName,
+      whatsappConnectedAt: new Date(),
+    };
+    await company.save();
+
+    res.status(200).json({ success: true, data: { wabaId, phoneNumberId, displayPhoneNumber, verifiedName } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const disconnect = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user;
+    const company = await Company.findOne({ tenantId });
+    if (!company) return next(new AppError('Empresa no encontrada', 404));
+
+    company.integrations = {
+      ...(company.integrations || {}),
+      whatsappEnabled: false,
+      whatsappWabaId: undefined,
+      whatsappPhoneId: undefined,
+      whatsappAccessToken: undefined,
+      whatsappDisplayPhone: undefined,
+      whatsappVerifiedName: undefined,
+      whatsappConnectedAt: undefined,
+    };
+    await company.save();
+
+    res.status(200).json({ success: true, message: 'Desconectado exitosamente' });
   } catch (error) {
     next(error);
   }

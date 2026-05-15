@@ -7,7 +7,10 @@ import {
   getTemplates,
   createTemplate,
   deleteTemplate,
-  sendMessage
+  sendMessage,
+  connect,
+  disconnect,
+  getConfig
 } from '../controllers/whatsapp.controller.js';
 import { protect } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -22,6 +25,9 @@ router.post('/webhook', handleWebhook);
 router.use(protect);
 router.use(tenantMiddleware);
 
+router.get('/config', getConfig);
+router.post('/connect', connect);
+router.post('/disconnect', disconnect);
 router.get('/conversations', getConversations);
 router.get('/templates', getTemplates);
 router.post('/templates', createTemplate);

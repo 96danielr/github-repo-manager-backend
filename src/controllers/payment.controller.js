@@ -157,6 +157,72 @@ export const getPayments = async (req, res, next) => {
 };
 
 /**
+ * Helper to send payment notifications (SMS and Email)
+ */
+const sendPaymentNotifications = async (req, quotaId, companyId) => {
+  const fullQuota = await Quota.findById(quotaId).populate({
+    path: 'contract',
+    populate: [
+      { path: 'client' },
+      { path: 'lot' },
+    ],
+  });
+  
+  const company = await Company.findById(companyId);
+  
+  if (fullQuota && fullQuota.contract && fullQuota.contract.client) {
+    const apiUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+    const receiptUrl = `${apiUrl}/api/public/receipt/${quotaId}`;
+    
+    // Update quota with receiptUrl if not set
+    if (!fullQuota.receiptUrl) {
+      await Quota.findByIdAndUpdate(quotaId, { receiptUrl });
+    }
+    
+    // Send SMS
+    const clientPhone = fullQuota.contract.client.phone;
+    if (clientPhone) {
+      const message = `Cordial saludo ${fullQuota.contract.client.name}, su recibo de la cuota #${fullQuota.number} por $${(fullQuota.amountPaid || fullQuota.value).toLocaleString()} de ${company?.name || 'nuestra empresa'}. Ver: ${receiptUrl}`;
+      await sendSMS(clientPhone, message);
+    }
+
+    // Send Email
+    const clientEmail = fullQuota.contract.client.email;
+    if (clientEmail) {
+      const subject = `Recibo de Pago: Cuota #${fullQuota.number} - ${company?.name || 'Recaudos'}`;
+      const htmlMessage = `
+        <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+          <h2 style="color: #007cba;">Confirmación de Pago</h2>
+          <p>Hola <strong>${fullQuota.contract.client.name}</strong>,</p>
+          <p>Te enviamos el recibo oficial de tu pago de la cuota <strong>#${fullQuota.number}</strong>.</p>
+          
+          <div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p style="margin: 0;"><strong>Monto:</strong> $${(fullQuota.amountPaid || fullQuota.value).toLocaleString()}</p>
+            <p style="margin: 5px 0 0 0;"><strong>Concepto:</strong> Pago de cuota - ${fullQuota.contract.lot?.stage || 'Proyecto'}</p>
+          </div>
+
+          <p>Puedes descargar tu recibo de caja oficial haciendo clic aquí:</p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${receiptUrl}" style="background: #007cba; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+              VER RECIBO DE CAJA
+            </a>
+          </div>
+
+          <p style="font-size: 12px; color: #777; border-top: 1px solid #eee; pt: 15px; margin-top: 25px;">
+            Gracias por tu puntualidad.<br>
+            <strong>${company?.name || 'Inmobiliaria'}</strong>
+          </p>
+        </div>
+      `;
+      await sendEmail(clientEmail, subject, htmlMessage);
+    }
+    return true;
+  }
+  return false;
+};
+
+/**
  * Mark a quota as "pagado" (paid).
  */
 export const approvePayment = async (req, res, next) => {
@@ -175,67 +241,11 @@ export const approvePayment = async (req, res, next) => {
 
     quota.status = 'pagado';
     
-    // Generate receipt and send SMS
+    // Generate receipt and send notifications
     try {
-      const fullQuota = await Quota.findById(quotaId).populate({
-        path: 'contract',
-        populate: [
-          { path: 'client' },
-          { path: 'lot' },
-        ],
-      });
-      
-      const company = await Company.findById(companyId);
-      
-      if (fullQuota && fullQuota.contract && fullQuota.contract.client) {
-        // Dynamic link instead of static file
-        const apiUrl = process.env.API_URL || 'http://localhost:5000';
-        const receiptUrl = `${apiUrl}/api/public/receipt/${quotaId}`;
-        
-        quota.receiptUrl = receiptUrl;
-        
-        // Send SMS
-        const clientPhone = fullQuota.contract.client.phone;
-        if (clientPhone) {
-          const message = `Cordial saludo ${fullQuota.contract.client.name}, su pago de la cuota #${fullQuota.number} por $${(fullQuota.amountPaid || fullQuota.value).toLocaleString()} ha sido aprobado en ${company?.name || 'nuestra empresa'}. Ver recibo: ${receiptUrl}`;
-          await sendSMS(clientPhone, message);
-        }
-
-        // Send Email
-        const clientEmail = fullQuota.contract.client.email;
-        if (clientEmail) {
-          const subject = `Recibo de Pago de Cuota #${fullQuota.number} - ${company?.name || 'Recaudos'}`;
-          const htmlMessage = `
-            <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
-              <h2 style="color: #007cba;">¡Pago Aprobado!</h2>
-              <p>Hola <strong>${fullQuota.contract.client.name}</strong>,</p>
-              <p>Esperamos que estés bien. Te informamos que hemos recibido y aprobado tu pago de la cuota <strong>#${fullQuota.number}</strong>.</p>
-              
-              <div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                <p style="margin: 0;"><strong>Monto:</strong> $${(fullQuota.amountPaid || fullQuota.value).toLocaleString()}</p>
-                <p style="margin: 5px 0 0 0;"><strong>Concepto:</strong> Pago de cuota - ${fullQuota.contract.lot?.stage || 'Proyecto'}</p>
-              </div>
-
-              <p>Puedes descargar tu recibo de caja oficial haciendo clic en el siguiente botón:</p>
-              
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="${receiptUrl}" style="background: #007cba; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-                  VER RECIBO DE CAJA
-                </a>
-              </div>
-
-              <p style="font-size: 12px; color: #777; border-top: 1px solid #eee; pt: 15px; margin-top: 25px;">
-                Cualquier duda, por favor contáctanos.<br>
-                <strong>${company?.name || 'Inmobiliaria'}</strong>
-              </p>
-            </div>
-          `;
-          await sendEmail(clientEmail, subject, htmlMessage);
-        }
-      }
+      await sendPaymentNotifications(req, quotaId, companyId);
     } catch (error) {
-      console.error('Error in receipt/SMS flow:', error);
-      // We don't fail the approval if receipt/SMS fails, but we log it
+      console.error('Error in receipt/notification flow:', error);
     }
 
     await quota.save();
@@ -321,65 +331,11 @@ export const registerManualPayment = async (req, res, next) => {
 
     await quota.save();
 
-    // Generate receipt and send SMS (Admin flow)
+    // Generate receipt and send notifications
     try {
-      const fullQuota = await Quota.findById(quotaId).populate({
-        path: 'contract',
-        populate: [
-          { path: 'client' },
-          { path: 'lot' },
-        ],
-      });
-      
-      const company = await Company.findById(companyId);
-      
-      if (fullQuota && fullQuota.contract && fullQuota.contract.client) {
-        // Dynamic link instead of static file
-        const apiUrl = process.env.API_URL || 'http://localhost:5000';
-        const receiptUrl = `${apiUrl}/api/public/receipt/${quotaId}`;
-        
-        quota.receiptUrl = receiptUrl;
-        await quota.save(); // Save again with receiptUrl
-        const clientPhone = fullQuota.contract.client.phone;
-        if (clientPhone) {
-          const message = `Cordial saludo ${fullQuota.contract.client.name}, su pago manual de la cuota #${fullQuota.number} por $${fullQuota.amountPaid.toLocaleString()} ha sido registrado. Ver recibo: ${receiptUrl}`;
-          await sendSMS(clientPhone, message);
-        }
-
-        // Send Email (Admin)
-        const clientEmail = fullQuota.contract.client.email;
-        if (clientEmail) {
-          const subject = `Registro de Pago: Cuota #${fullQuota.number} - ${company?.name || 'Recaudos'}`;
-          const htmlMessage = `
-            <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
-              <h2 style="color: #007cba;">Confirmación de Pago</h2>
-              <p>Hola <strong>${fullQuota.contract.client.name}</strong>,</p>
-              <p>Te informamos que se ha registrado manualmente un pago para tu cuota <strong>#${fullQuota.number}</strong>.</p>
-              
-              <div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                <p style="margin: 0;"><strong>Monto:</strong> $${fullQuota.amountPaid.toLocaleString()}</p>
-                <p style="margin: 5px 0 0 0;"><strong>Registrado el:</strong> ${new Date(fullQuota.paymentDate).toLocaleDateString()}</p>
-              </div>
-
-              <p>Tu recibo de caja oficial ya está disponible:</p>
-              
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="${receiptUrl}" style="background: #007cba; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-                  DESCARGAR RECIBO
-                </a>
-              </div>
-
-              <p style="font-size: 12px; color: #777; border-top: 1px solid #eee; pt: 15px; margin-top: 25px;">
-                Gracias por tu confianza.<br>
-                <strong>${company?.name || 'Inmobiliaria'}</strong>
-              </p>
-            </div>
-          `;
-          await sendEmail(clientEmail, subject, htmlMessage);
-        }
-      }
+      await sendPaymentNotifications(req, quotaId, companyId);
     } catch (error) {
-      console.error('Error in admin receipt/SMS flow:', error);
+      console.error('Error in admin receipt/notification flow:', error);
     }
 
     await logAudit(req, {
@@ -396,6 +352,45 @@ export const registerManualPayment = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Pago registrado y aprobado exitosamente',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Resend payment receipt to client
+ */
+export const resendReceipt = async (req, res, next) => {
+  try {
+    const { tenantId, companyId } = req.user;
+    const { id: quotaId } = req.params;
+
+    const quota = await Quota.findOne({ _id: quotaId, tenantId, companyId });
+    if (!quota) {
+      return next(new AppError('Pago no encontrado', 404));
+    }
+
+    if (quota.status !== 'pagado') {
+      return next(new AppError('Solo se pueden reenviar recibos de pagos aprobados', 400));
+    }
+
+    const sent = await sendPaymentNotifications(req, quotaId, companyId);
+    
+    if (!sent) {
+      return next(new AppError('No se pudo enviar el recibo. Verifique que el cliente tenga datos de contacto.', 400));
+    }
+
+    await logAudit(req, {
+      action: 'RESEND_RECEIPT',
+      module: 'PAYMENTS',
+      targetId: quota._id,
+      details: { cuotaNumber: quota.number }
+    });
+
+    res.json({
+      success: true,
+      message: 'Recibo reenviado exitosamente',
     });
   } catch (error) {
     next(error);

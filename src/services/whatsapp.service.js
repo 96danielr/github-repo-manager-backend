@@ -2,22 +2,30 @@
 
 class WhatsAppService {
   constructor() {
-    this.accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    this.phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
     this.apiVersion = 'v18.0';
-    this.baseUrl = `https://graph.facebook.com/${this.apiVersion}/${this.phoneNumberId}`;
-    this.wabaUrl = `https://graph.facebook.com/${this.apiVersion}/${process.env.WHATSAPP_WABA_ID}`;
+  }
+
+  getGraphUrl(config) {
+    if (!config?.accessToken || !config?.phoneNumberId || !config?.wabaId) {
+      throw new Error('WhatsApp no está configurado para esta empresa');
+    }
+    return {
+      baseUrl: `https://graph.facebook.com/${this.apiVersion}/${config.phoneNumberId}`,
+      wabaUrl: `https://graph.facebook.com/${this.apiVersion}/${config.wabaId}`,
+      accessToken: config.accessToken,
+    };
   }
 
   /**
    * Fetch approved message templates from Meta
    */
-  async getTemplates() {
+  async getTemplates(config) {
     try {
-      const response = await fetch(`${this.wabaUrl}/message_templates`, {
+      const { wabaUrl, accessToken } = this.getGraphUrl(config);
+      const response = await fetch(`${wabaUrl}/message_templates`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
+          'Authorization': `Bearer ${accessToken}`,
         },
       });
 
@@ -34,12 +42,13 @@ class WhatsAppService {
     }
   }
 
-  async createTemplate(data) {
+  async createTemplate(config, data) {
     try {
-      const response = await fetch(`${this.wabaUrl}/message_templates`, {
+      const { wabaUrl, accessToken } = this.getGraphUrl(config);
+      const response = await fetch(`${wabaUrl}/message_templates`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(data),
@@ -57,12 +66,13 @@ class WhatsAppService {
     }
   }
 
-  async deleteTemplate(name) {
+  async deleteTemplate(config, name) {
     try {
-      const response = await fetch(`${this.wabaUrl}/message_templates?name=${name}`, {
+      const { wabaUrl, accessToken } = this.getGraphUrl(config);
+      const response = await fetch(`${wabaUrl}/message_templates?name=${name}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
+          'Authorization': `Bearer ${accessToken}`,
         },
       });
 
@@ -81,12 +91,13 @@ class WhatsAppService {
   /**
    * Send a text message to a customer
    */
-  async sendTextMessage(to, text) {
+  async sendTextMessage(config, to, text) {
     try {
-      const response = await fetch(`${this.baseUrl}/messages`, {
+      const { baseUrl, accessToken } = this.getGraphUrl(config);
+      const response = await fetch(`${baseUrl}/messages`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -113,12 +124,13 @@ class WhatsAppService {
   /**
    * Send a template message (required for initiating conversations)
    */
-  async sendTemplateMessage(to, templateName, languageCode = 'es', components = []) {
+  async sendTemplateMessage(config, to, templateName, languageCode = 'es', components = []) {
     try {
-      const response = await fetch(`${this.baseUrl}/messages`, {
+      const { baseUrl, accessToken } = this.getGraphUrl(config);
+      const response = await fetch(`${baseUrl}/messages`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
+          'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

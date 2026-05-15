@@ -54,6 +54,12 @@ const companySchema = new mongoose.Schema({
   integrations: {
     whatsappEnabled: { type: Boolean, default: false },
     whatsappApiKey: String,
+    whatsappWabaId: String,
+    whatsappPhoneId: String,
+    whatsappAccessToken: String,
+    whatsappDisplayPhone: String,
+    whatsappVerifiedName: String,
+    whatsappConnectedAt: Date,
     daptaEnabled: { type: Boolean, default: false },
     daptaApiKey: String,
   },
