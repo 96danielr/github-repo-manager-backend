@@ -51,6 +51,14 @@ const companySchema = new mongoose.Schema({
     tipoCuenta: String,
     numeroCuenta: String,
   },
+  bankAccounts: [{
+    banco: { type: String, required: true },
+    tipoCuenta: { type: String, required: true },
+    numeroCuenta: { type: String, required: true },
+    titular: { type: String },
+    qrCode: { type: String },
+    isActive: { type: Boolean, default: true }
+  }],
   integrations: {
     whatsappEnabled: { type: Boolean, default: false },
     whatsappApiKey: String,
@@ -62,6 +70,12 @@ const companySchema = new mongoose.Schema({
     whatsappConnectedAt: Date,
     daptaEnabled: { type: Boolean, default: false },
     daptaApiKey: String,
+  },
+  logo: {
+    type: String,
+  },
+  projectLogo: {
+    type: String,
   },
 }, {
   timestamps: true,

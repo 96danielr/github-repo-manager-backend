@@ -347,6 +347,9 @@ export const sellLot = async (req, res, next) => {
       sellerId,
       bonus = '',
       bonusValue = 0,
+      separationAmount = 0,
+      initialQuotaDueDate,
+      paymentDay,
     } = req.body;
 
     const effectiveSellerId = sellerId || (role === 'vendedor' ? userId : null);
@@ -396,8 +399,10 @@ export const sellLot = async (req, res, next) => {
     const finalTotalValue = baseTotalValue - bonusValueParsed;
 
     // 2. Initial Calculations
-    const initialAmountTotal = roundMoney(finalTotalValue * (initialQuotaPercentage / 100));
-    const residualAmount = roundMoney(finalTotalValue - initialAmountTotal);
+    const rawInitialAmountTotal = roundMoney(finalTotalValue * (initialQuotaPercentage / 100));
+    const effectiveSeparationAmount = parseFloat(separationAmount) || 0;
+    const initialAmountTotal = Math.max(0, rawInitialAmountTotal - effectiveSeparationAmount);
+    const residualAmount = roundMoney(finalTotalValue - rawInitialAmountTotal);
     
     // We'll calculate installments properly in step 5
     const installmentsCountParsed = parseInt(installmentsCount) || 0;
@@ -420,6 +425,7 @@ export const sellLot = async (req, res, next) => {
       sellerId: effectiveSellerId,
       bonus,
       bonusValue: bonusValueParsed,
+      paymentDay: parseInt(paymentDay) || null,
       status: 'ACTIVO',
     });
 
@@ -433,10 +439,28 @@ export const sellLot = async (req, res, next) => {
     const baseContractDate = contractDate ? new Date(contractDate) : new Date();
     const baseStartDate = startDate ? new Date(startDate) : new Date();
 
+    // Separation Quota: If separationAmount > 0, create it fully paid!
+    if (effectiveSeparationAmount > 0) {
+      quotas.push({
+        tenantId,
+        companyId,
+        contract: contract._id,
+        number: 0,
+        type: 'inicial',
+        value: effectiveSeparationAmount,
+        dueDate: contractDate || new Date(),
+        status: 'pagado',
+        amountPaid: effectiveSeparationAmount,
+        paymentDate: contractDate || new Date(),
+        paymentObservations: 'Abono de separación del lote descontado de la cuota inicial',
+      });
+    }
+
     // Initial Quotas breakdown
     let currentInitialSum = 0;
     const iCount = parseInt(initialQuotasCount) || 1;
     const baseInitialVal = roundMoney(initialAmountTotal / iCount);
+    const baseInitialDueDate = initialQuotaDueDate ? new Date(initialQuotaDueDate) : new Date(baseContractDate);
 
     for (let i = 1; i <= iCount; i++) {
       let val = baseInitialVal;
@@ -445,7 +469,7 @@ export const sellLot = async (req, res, next) => {
       }
       currentInitialSum += val;
 
-      const dueDate = new Date(baseContractDate);
+      const dueDate = new Date(baseInitialDueDate);
       dueDate.setMonth(dueDate.getMonth() + (i - 1));
 
       if (val > 0) {
@@ -474,9 +498,11 @@ export const sellLot = async (req, res, next) => {
       const dueDate = new Date(baseStartDate);
       dueDate.setMonth(dueDate.getMonth() + (i - 1));
       
-      // If paymentDay is specified, force the day of the month
-      if (contract.paymentDay && contract.paymentDay >= 1 && contract.paymentDay <= 31) {
-        dueDate.setDate(contract.paymentDay);
+      // If paymentDay is specified, force the day of the month safely
+      const effectivePaymentDay = parseInt(paymentDay) || (contract.paymentDay && contract.paymentDay >= 1 && contract.paymentDay <= 31 ? contract.paymentDay : null);
+      if (effectivePaymentDay && effectivePaymentDay >= 1 && effectivePaymentDay <= 31) {
+        const lastDay = new Date(dueDate.getFullYear(), dueDate.getMonth() + 1, 0).getDate();
+        dueDate.setDate(Math.min(effectivePaymentDay, lastDay));
       }
 
       if (val > 0) {

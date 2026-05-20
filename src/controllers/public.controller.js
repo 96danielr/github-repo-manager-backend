@@ -38,7 +38,14 @@ export const getReceiptPDF = async (req, res, next) => {
       date: quota.paymentDate || quota.updatedAt,
       clientName: quota.contract.client.name,
       clientId: quota.contract.client.idNumber,
-      companyName: company?.name || 'Inmobiliaria',
+      clientPhone: quota.contract.client.phone || '',
+      clientAddress: quota.contract.client.address || '',
+      clientCity: quota.contract.client.expeditionPlace || '',
+      companyName: company?.name || '',
+      companyNit: company?.nit || '',
+      companyAddress: company?.address || '',
+      companyPhone: company?.phone || '',
+      companyLogo: company?.logo || '',
       lotInfo: `Lote ${quota.contract.lot?.lotNumber || ''} - ${quota.contract.lot?.stage || ''}`,
       paymentBank: quota.paymentBank,
       observations: quota.paymentObservations,
@@ -174,6 +181,34 @@ export const reportPayment = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Pago reportado exitosamente. Pendiente de aprobación.',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get active company bank accounts with QR codes (Public endpoint)
+ */
+export const getCompanyAccountsPublic = async (req, res, next) => {
+  try {
+    const { companySlug } = req.params;
+
+    const company = await Company.findOne({ slug: companySlug }).select('name logo nit address phone bankAccounts');
+    if (!company) {
+      return next(new AppError('Empresa no encontrada', 404));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        name: company.name,
+        logo: company.logo || '',
+        nit: company.nit || '',
+        address: company.address || '',
+        phone: company.phone || '',
+        bankAccounts: company.bankAccounts ? company.bankAccounts.filter(acc => acc.isActive) : []
+      }
     });
   } catch (error) {
     next(error);

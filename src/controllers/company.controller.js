@@ -127,7 +127,7 @@ export const createCompany = async (req, res, next) => {
  */
 export const updateCompany = async (req, res, next) => {
   try {
-    const { name, rfc, status, nit, address, phone, email, bankInfo, integrations } = req.body;
+    const { name, rfc, status, nit, address, phone, email, bankInfo, integrations, bankAccounts, logo, projectLogo } = req.body;
     const { tenantId } = req.user;
     const companyId = req.params.id;
 
@@ -146,6 +146,9 @@ export const updateCompany = async (req, res, next) => {
     if (email !== undefined) company.email = email;
     if (bankInfo !== undefined) company.bankInfo = bankInfo;
     if (integrations !== undefined) company.integrations = integrations;
+    if (bankAccounts !== undefined) company.bankAccounts = bankAccounts;
+    if (logo !== undefined) company.logo = logo;
+    if (projectLogo !== undefined) company.projectLogo = projectLogo;
 
     await company.save();
 

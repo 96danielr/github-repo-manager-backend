@@ -319,23 +319,92 @@ export const registerManualPayment = async (req, res, next) => {
       captureUrl = await uploadToR2(file, 'payments');
     }
 
-    // Admin payments are auto-approved
-    quota.status = 'pagado';
-    quota.amountPaid = amount || quota.value;
-    quota.paymentBank = bank;
-    quota.paymentObservations = observations;
-    quota.paymentDate = paymentDate || new Date();
-    if (captureUrl) {
-      quota.paymentCapture = captureUrl;
-    }
+    // Admin payments are auto-approved. If there is a payment excess, it cascades sequentially.
+    const paidAmount = parseFloat(amount) || quota.value;
+    const quotaPendingValue = quota.value - (quota.amountPaid || 0);
 
-    await quota.save();
+    if (paidAmount > quotaPendingValue) {
+      let excess = paidAmount - quotaPendingValue;
+      
+      // Fully pay the selected quota
+      quota.status = 'pagado';
+      quota.amountPaid = quota.value;
+      quota.paymentBank = bank;
+      quota.paymentObservations = `${observations || ''} (Pago inicial)`;
+      quota.paymentDate = paymentDate || new Date();
+      if (captureUrl) {
+        quota.paymentCapture = captureUrl;
+      }
+      await quota.save();
 
-    // Generate receipt and send notifications
-    try {
-      await sendPaymentNotifications(req, quotaId, companyId);
-    } catch (error) {
-      console.error('Error in admin receipt/notification flow:', error);
+      try {
+        await sendPaymentNotifications(req, quotaId, companyId);
+      } catch (error) {
+        console.error('Error in receipt/notification flow for primary quota:', error);
+      }
+
+      // Fetch subsequent pending or in-mora quotas for this contract, sorted by type (inicial first) and number
+      const pendingQuotas = await Quota.find({
+        contract: quota.contract,
+        tenantId,
+        companyId,
+        _id: { $ne: quotaId },
+        status: { $in: ['pendiente', 'mora'] }
+      }).sort({ type: 1, number: 1 });
+
+      for (const pq of pendingQuotas) {
+        if (excess <= 0) break;
+
+        const pqPendingValue = pq.value - (pq.amountPaid || 0);
+        if (excess >= pqPendingValue) {
+          // Fully pay this quota
+          pq.status = 'pagado';
+          pq.amountPaid = pq.value;
+          pq.paymentBank = bank;
+          pq.paymentObservations = `${observations || ''} (Excedente en cascada de pago de la cuota #${quota.number})`;
+          pq.paymentDate = paymentDate || new Date();
+          if (captureUrl) {
+            pq.paymentCapture = captureUrl;
+          }
+          await pq.save();
+
+          try {
+            await sendPaymentNotifications(req, pq._id, companyId);
+          } catch (error) {
+            console.error('Error in receipt/notification flow for cascaded quota:', error);
+          }
+
+          excess -= pqPendingValue;
+        } else {
+          // Partially pay this quota
+          pq.amountPaid = (pq.amountPaid || 0) + excess;
+          pq.paymentBank = bank;
+          pq.paymentObservations = `${observations || ''} (Abono parcial en cascada de pago de la cuota #${quota.number})`;
+          pq.paymentDate = paymentDate || new Date();
+          if (captureUrl) {
+            pq.paymentCapture = captureUrl;
+          }
+          await pq.save();
+
+          excess = 0;
+        }
+      }
+    } else {
+      quota.status = 'pagado';
+      quota.amountPaid = paidAmount;
+      quota.paymentBank = bank;
+      quota.paymentObservations = observations;
+      quota.paymentDate = paymentDate || new Date();
+      if (captureUrl) {
+        quota.paymentCapture = captureUrl;
+      }
+      await quota.save();
+
+      try {
+        await sendPaymentNotifications(req, quotaId, companyId);
+      } catch (error) {
+        console.error('Error in admin receipt/notification flow:', error);
+      }
     }
 
     await logAudit(req, {

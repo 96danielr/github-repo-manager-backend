@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { getClientInfo, reportPayment, getReceiptPDF } from '../controllers/public.controller.js';
+import { getClientInfo, reportPayment, getReceiptPDF, getCompanyAccountsPublic } from '../controllers/public.controller.js';
 
 const router = express.Router();
 
@@ -21,6 +21,7 @@ const upload = multer({
   },
 });
 
+router.get('/accounts/:companySlug', getCompanyAccountsPublic);
 router.get('/:companySlug/client/:idNumber', getClientInfo);
 router.post('/report-payment', upload.single('capture'), reportPayment);
 
