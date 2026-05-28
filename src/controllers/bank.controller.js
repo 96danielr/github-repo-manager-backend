@@ -6,10 +6,33 @@ import XLSX from 'xlsx';
  */
 export const getBanks = async (req, res, next) => {
   try {
-    let { page = 1, limit = 100, search, sortBy = 'socialDenomination', sortOrder = 'asc', companyId: queryCompanyId, companySlug } = req.query;
+    let { page = 1, limit = 100, search, sortBy = 'socialDenomination', sortOrder = 'asc', companyId: queryCompanyId, companySlug, adminView } = req.query;
     
-    let { tenantId, companyId } = req.user || {};
+    let tenantId;
+    let companyId = queryCompanyId;
     
+    // Parse token optionally since GET / is public but also called by admin dashboard
+    let token;
+    if (req.cookies && req.cookies.accessToken) {
+      token = req.cookies.accessToken;
+    } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (token) {
+      try {
+        const { verifyAccessToken } = await import('../utils/jwt.js');
+        const decoded = verifyAccessToken(token);
+        tenantId = decoded.tenantId;
+        if (!companyId && decoded.companies && decoded.companies.length > 0) {
+          companyId = decoded.companies[0].companyId || decoded.companies[0];
+        }
+        req.user = decoded;
+      } catch (err) {
+        // Ignore token errors for public fallback
+      }
+    }
+
     // Support public requests or requests without full middleware context
     if (!tenantId && (queryCompanyId || companySlug)) {
       const { default: Company } = await import('../models/Company.js');
@@ -28,12 +51,22 @@ export const getBanks = async (req, res, next) => {
     }
 
     let query = { 
-      isActive: true,
       $or: [
         { tenantId: null }, // Global banks
         { tenantId: tenantId || null, companyId: companyId || null }, // Company specific banks
       ],
     };
+
+    // If it's a public client payment report or filterActive is requested, only show active banks
+    const isPublic = !req.user;
+    const shouldFilterActive = isPublic || adminView !== 'true';
+
+    if (shouldFilterActive) {
+      query.isActive = true;
+      if (companyId) {
+        query.disabledByCompanies = { $ne: companyId };
+      }
+    }
 
     if (search) {
       const searchFilter = {
@@ -61,10 +94,20 @@ export const getBanks = async (req, res, next) => {
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
 
+    // Decorate for admin dashboard so they see the status for their active company
+    const decoratedBanks = banks.map(bank => {
+      const bankObj = bank.toObject();
+      const isDisabled = companyId && bank.disabledByCompanies && bank.disabledByCompanies.some(
+        id => id.toString() === companyId.toString()
+      );
+      bankObj.isActiveForCompany = bank.isActive && !isDisabled;
+      return bankObj;
+    });
+
     res.status(200).json({
       success: true,
       data: {
-        banks,
+        banks: decoratedBanks,
         pagination: {
           total,
           page: parseInt(page),
@@ -145,35 +188,57 @@ export const bulkCreateBanks = async (req, res, next) => {
   }
 };
 
-/**
- * Update bank details
- */
 export const updateBank = async (req, res, next) => {
   try {
-    const { tenantId, companyId, role } = req.user || {};
-    
-    // Safety check: Don't allow non-superadmins to update global banks or other company's banks
-    const query = { _id: req.params.id };
-    if (role !== 'superadmin') {
-      query.tenantId = tenantId;
-      query.companyId = companyId;
+    const { tenantId, companyId: userCompanyId, role } = req.user || {};
+    const companyId = req.query.companyId || userCompanyId;
+    const bankId = req.params.id;
+
+    const bank = await Bank.findById(bankId);
+    if (!bank) {
+      return res.status(404).json({ success: false, message: 'Banco no encontrado' });
     }
 
-    const bank = await Bank.findOneAndUpdate(query, req.body, {
+    // Safety check: Non-superadmins cannot modify other company's custom banks
+    if (role !== 'superadmin' && bank.tenantId && (bank.tenantId.toString() !== tenantId?.toString() || bank.companyId?.toString() !== companyId?.toString())) {
+      return res.status(403).json({ success: false, message: 'No tienes permiso para gestionar este banco' });
+    }
+
+    // If it's a global bank and user is not superadmin, allow toggling company active status
+    if (!bank.tenantId && role !== 'superadmin') {
+      const { isActive } = req.body;
+      if (isActive !== undefined && companyId) {
+        if (!bank.disabledByCompanies) {
+          bank.disabledByCompanies = [];
+        }
+        if (isActive === false) {
+          if (!bank.disabledByCompanies.some(id => id.toString() === companyId.toString())) {
+            bank.disabledByCompanies.push(companyId);
+          }
+        } else {
+          bank.disabledByCompanies = bank.disabledByCompanies.filter(
+            id => id.toString() !== companyId.toString()
+          );
+        }
+        await bank.save();
+        
+        // Return a decorated bank object
+        const bankObj = bank.toObject();
+        bankObj.isActiveForCompany = isActive;
+        return res.status(200).json({ success: true, data: bankObj });
+      }
+      return res.status(403).json({ success: false, message: 'No puedes gestionar bancos del sistema' });
+    }
+
+    // Otherwise, normal update of company specific bank
+    const updatedBank = await Bank.findByIdAndUpdate(bankId, req.body, {
       new: true,
       runValidators: true,
     });
 
-    if (!bank) {
-      return res.status(404).json({
-        success: false,
-        message: 'Banco no encontrado',
-      });
-    }
-
     res.status(200).json({
       success: true,
-      data: bank,
+      data: updatedBank,
     });
   } catch (error) {
     next(error);
@@ -185,7 +250,8 @@ export const updateBank = async (req, res, next) => {
  */
 export const deleteBank = async (req, res, next) => {
   try {
-    const { tenantId, companyId, role } = req.user || {};
+    const { tenantId, companyId: userCompanyId, role } = req.user || {};
+    const companyId = req.query.companyId || userCompanyId;
     const bankId = req.params.id;
 
     const bank = await Bank.findById(bankId);
@@ -193,10 +259,23 @@ export const deleteBank = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Banco no encontrado' });
     }
 
-    // Protection: Seed banks (tenantId null) cannot be deleted
+    // Protection: Seed banks (tenantId null) cannot be deleted permanently
     const isSeedBank = !bank.tenantId;
 
     if (isSeedBank && role !== 'superadmin') {
+      if (companyId) {
+        if (!bank.disabledByCompanies) {
+          bank.disabledByCompanies = [];
+        }
+        if (!bank.disabledByCompanies.some(id => id.toString() === companyId.toString())) {
+          bank.disabledByCompanies.push(companyId);
+          await bank.save();
+        }
+        return res.status(200).json({
+          success: true,
+          message: 'Banco desactivado para este proyecto',
+        });
+      }
       return res.status(403).json({ success: false, message: 'No puedes gestionar bancos del sistema' });
     }
 
@@ -206,15 +285,12 @@ export const deleteBank = async (req, res, next) => {
     }
 
     // Check if used in payments
-    // We import dynamically to avoid circular dependency if any
     const { default: Payment } = await import('../models/Payment.js');
     const isUsed = await Payment.exists({ 
       banco: bank.acronym, 
       tenantId: bank.tenantId || tenantId,
     });
 
-    // Strategy: Deactivate if seed bank or if it has transactions. 
-    // Superadmin also deactivates instead of deletes for safety as requested.
     if (isUsed || isSeedBank || role === 'superadmin') {
       bank.isActive = false;
       await bank.save();
@@ -226,7 +302,7 @@ export const deleteBank = async (req, res, next) => {
       });
     }
 
-    // If not used and not seed bank, and not superadmin (though superadmin deactivates per request)
+    // If not used and not seed bank, and not superadmin
     await Bank.findByIdAndDelete(bankId);
 
     res.status(200).json({
@@ -323,6 +399,61 @@ export const importBanksExcel = async (req, res, next) => {
       message: 'Procesamiento de bancos completado',
       summary,
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Enable or disable all banks for a specific company
+ */
+export const toggleAllBanks = async (req, res, next) => {
+  try {
+    const { tenantId, companyId: userCompanyId, role } = req.user || {};
+    const companyId = req.query.companyId || userCompanyId;
+    const { action } = req.body; // 'enable' or 'disable'
+
+    if (!companyId) {
+      return res.status(400).json({ success: false, message: 'ID de compañía es requerido' });
+    }
+
+    if (action === 'disable') {
+      // 1. Disable all global banks for this company by adding companyId to disabledByCompanies
+      await Bank.updateMany(
+        { tenantId: null },
+        { $addToSet: { disabledByCompanies: companyId } }
+      );
+
+      // 2. Disable all company-specific banks
+      await Bank.updateMany(
+        { tenantId: tenantId || null, companyId },
+        { isActive: false }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Todos los bancos han sido ocultados para este proyecto',
+      });
+    } else if (action === 'enable') {
+      // 1. Enable all global banks for this company by pulling companyId from disabledByCompanies
+      await Bank.updateMany(
+        { tenantId: null },
+        { $pull: { disabledByCompanies: companyId } }
+      );
+
+      // 2. Enable all company-specific banks
+      await Bank.updateMany(
+        { tenantId: tenantId || null, companyId },
+        { isActive: true }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Todos los bancos han sido habilitados para este proyecto',
+      });
+    } else {
+      return res.status(400).json({ success: false, message: 'Acción no válida' });
+    }
   } catch (error) {
     next(error);
   }

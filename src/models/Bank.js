@@ -44,6 +44,10 @@ const bankSchema = new mongoose.Schema({
     type: Boolean,
     default: true,
   },
+  disabledByCompanies: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Company',
+  }],
 }, { timestamps: true });
 
 // Index for performance

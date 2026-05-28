@@ -61,7 +61,7 @@ export const getLots = async (req, res, next) => {
     // Run lazy cleanup for expired reservations
     await checkLotExpirations(tenantId, companyId);
 
-    const { page = 1, limit = 10, search, sortBy, order } = req.query;
+    const { page = 1, limit = 10, search, sortBy, order, status } = req.query;
     const skip = (page - 1) * limit;
 
     // Dynamic sort
@@ -71,6 +71,10 @@ export const getLots = async (req, res, next) => {
     }
 
     let query = { tenantId, companyId };
+
+    if (status) {
+      query.status = status;
+    }
 
     // If seller role, show:
     // 1. All available lots (to be sold)

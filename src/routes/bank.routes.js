@@ -6,6 +6,7 @@ import {
   deleteBank, 
   bulkCreateBanks,
   importBanksExcel,
+  toggleAllBanks,
 } from '../controllers/bank.controller.js';
 import multer from 'multer';
 import { protect, checkPermission } from '../middleware/auth.js';
@@ -26,6 +27,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 router.post('/', checkPermission(PERMISSIONS.BANCOS_MANAGE), createBank);
 router.post('/bulk', checkPermission(PERMISSIONS.BANCOS_MANAGE), bulkCreateBanks);
 router.post('/import', checkPermission(PERMISSIONS.BANCOS_MANAGE), upload.single('file'), importBanksExcel);
+router.put('/toggle-all', checkPermission(PERMISSIONS.BANCOS_MANAGE), toggleAllBanks);
 router.put('/:id', checkPermission(PERMISSIONS.BANCOS_MANAGE), updateBank);
 router.delete('/:id', checkPermission(PERMISSIONS.BANCOS_DELETE), deleteBank);
 
