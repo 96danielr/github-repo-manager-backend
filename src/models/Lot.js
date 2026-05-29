@@ -47,6 +47,10 @@ const lotSchema = new mongoose.Schema({
     enum: ['disponible', 'apartado', 'separado', 'vendido'],
     default: 'disponible',
   },
+  maxInstallments: {
+    type: Number,
+    default: 24,
+  },
   reservedAt: Date,
   expiresAt: Date,
   reservationBy: {

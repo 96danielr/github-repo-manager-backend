@@ -22,6 +22,7 @@ export const createLot = async (req, res, next) => {
       images, 
       status,
       excelRowId,
+      maxInstallments,
     } = req.body;
 
     const lot = await Lot.create({
@@ -33,6 +34,7 @@ export const createLot = async (req, res, next) => {
       price,
       images: images || [],
       status: status || 'disponible',
+      maxInstallments: maxInstallments !== undefined && maxInstallments !== '' ? parseInt(maxInstallments) : 24,
       excelRowId,
       tenantId,
       companyId,
@@ -201,12 +203,14 @@ export const updateLot = async (req, res, next) => {
 
     const { 
       stage, 
+      manzana,
       nomenclature, 
       lotNumber, 
       area, 
       price, 
       images, 
       status,
+      maxInstallments,
     } = req.body;
 
     const lot = await Lot.findByIdAndUpdate(
@@ -220,6 +224,7 @@ export const updateLot = async (req, res, next) => {
         price, 
         images, 
         status,
+        maxInstallments: maxInstallments !== undefined && maxInstallments !== '' ? parseInt(maxInstallments) : 24,
       }, 
       {
         new: true,
@@ -361,6 +366,16 @@ export const sellLot = async (req, res, next) => {
     const lot = await Lot.findById(id);
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
     
+    // Validate installments count
+    const maxInstallmentsAllowed = lot.maxInstallments !== undefined ? lot.maxInstallments : 24;
+    const installmentsCountParsed = parseInt(installmentsCount) || 0;
+    if (installmentsCountParsed > maxInstallmentsAllowed) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `El número máximo de cuotas permitido para este lote es ${maxInstallmentsAllowed}. No se puede seleccionar ${installmentsCountParsed} cuotas.` 
+      });
+    }
+
     // Allow selling if it's available or reserved by the same client/seller
     if (lot.status === 'vendido') {
       return res.status(400).json({ success: false, message: 'Lote ya está vendido' });
@@ -409,7 +424,6 @@ export const sellLot = async (req, res, next) => {
     const residualAmount = roundMoney(finalTotalValue - rawInitialAmountTotal);
     
     // We'll calculate installments properly in step 5
-    const installmentsCountParsed = parseInt(installmentsCount) || 0;
     const installmentValueEstimate = installmentsCountParsed > 0 ? roundMoney(residualAmount / installmentsCountParsed) : 0;
 
     // 3. Create Contract
