@@ -5,6 +5,7 @@ import Quota from '../models/Quota.js';
 import AppError from '../utils/AppError.js';
 import { uploadToR2 } from '../utils/storage.js';
 import { generateReceiptStream } from '../utils/receipt.js';
+import { generateStatementStream } from '../utils/statement.js';
 
 /**
  * Generate a dynamic PDF receipt for a paid quota (Public endpoint)
@@ -49,9 +50,92 @@ export const getReceiptPDF = async (req, res, next) => {
       lotInfo: `Lote ${quota.contract.lot?.lotNumber || ''} - ${quota.contract.lot?.stage || ''}`,
       paymentBank: quota.paymentBank,
       observations: quota.paymentObservations,
+      paymentCapture: quota.paymentCapture,
     };
 
     await generateReceiptStream(receiptData, res);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Generate a dynamic PDF account statement for a contract (Public endpoint)
+ */
+export const getStatementPDF = async (req, res, next) => {
+  try {
+    const { contractId } = req.params;
+
+    const contract = await Contract.findById(contractId)
+      .populate('client')
+      .populate('lot');
+
+    if (!contract) {
+      return next(new AppError('Contrato no encontrado', 404));
+    }
+
+    const company = await Company.findById(contract.companyId);
+
+    // Fetch all quotas for the contract sorted by type then number
+    const quotas = await Quota.find({ contract: contractId })
+      .sort({ type: 1, number: 1 });
+
+    // Calculate aggregated metrics
+    const totalValue = contract.totalValue || 0;
+    const totalPaid = quotas.reduce((sum, q) => sum + (q.amountPaid || 0), 0);
+    const totalPending = Math.max(0, totalValue - totalPaid);
+    const averageRecaudo = totalValue > 0 ? Math.round((totalPaid / totalValue) * 100) : 0;
+
+    // Breakdown metrics
+    const initialQuotas = quotas.filter(q => q.type === 'inicial');
+    const normalQuotas = quotas.filter(q => q.type === 'normal');
+
+    const valorTotalInicial = initialQuotas.reduce((sum, q) => sum + (q.value || 0), 0);
+    const valorPagadoInicial = initialQuotas.reduce((sum, q) => sum + (q.amountPaid || 0), 0);
+    const totalCuotasIniciales = initialQuotas.length;
+    const cuotasInicialesPagadas = initialQuotas.filter(q => q.status === 'pagado').length;
+
+    const valorTotalCuotas = normalQuotas.reduce((sum, q) => sum + (q.value || 0), 0);
+    const valorPagadoCuotas = normalQuotas.reduce((sum, q) => sum + (q.amountPaid || 0), 0);
+    const totalCuotasNormales = normalQuotas.length;
+    const cuotasNormalesPagadas = normalQuotas.filter(q => q.status === 'pagado').length;
+
+    const lotInfo = contract.lot 
+      ? `MZ: ${contract.lot.manzana || 'N/A'} - Lote: ${contract.lot.nomenclature || contract.lot.lotNumber || 'N/A'}${contract.lot.stage ? ` (${contract.lot.stage})` : ''}`
+      : 'N/A';
+
+    const statementData = {
+      contractId: contract._id,
+      clientName: contract.client?.name || 'N/A',
+      clientId: contract.client?.idNumber || 'N/A',
+      clientPhone: contract.client?.phone || '',
+      clientEmail: contract.client?.email || '',
+      projectName: contract.negotiation || 'Proyecto sin nombre',
+      lotInfo,
+      companyName: company?.name || '',
+      companyNit: company?.nit || '',
+      companyAddress: company?.address || '',
+      companyPhone: company?.phone || '',
+      companyLogo: company?.logo || '',
+      // Financial numbers
+      totalValue,
+      totalPaid,
+      totalPending,
+      averageRecaudo,
+      // Breakdown
+      valorTotalInicial,
+      valorPagadoInicial,
+      totalCuotasIniciales,
+      cuotasInicialesPagadas,
+      valorTotalCuotas,
+      valorPagadoCuotas,
+      totalCuotasNormales,
+      cuotasNormalesPagadas,
+      // Detailed list of quotas
+      quotas,
+    };
+
+    await generateStatementStream(statementData, res);
   } catch (error) {
     next(error);
   }
@@ -125,56 +209,96 @@ export const getClientInfo = async (req, res, next) => {
  */
 export const reportPayment = async (req, res, next) => {
   try {
-    const { quotaId, amount, bank, observations, paymentDate, phone, email } = req.body;
+    const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod, phone, email } = req.body;
     const file = req.file;
 
+    console.log('[LOG][PUBLIC_REPORT_PAYMENT] Petición recibida:', {
+      quotaId,
+      amount,
+      bank,
+      observations,
+      paymentDate,
+      fechaPago,
+      paymentMethod,
+      phone,
+      email,
+      hasFile: !!file
+    });
+
     if (!quotaId) {
+      console.warn('[LOG][PUBLIC_REPORT_PAYMENT] Error: ID de cuota ausente');
       return next(new AppError('El ID de la cuota es requerido', 400));
     }
 
     const quota = await Quota.findById(quotaId);
     if (!quota) {
+      console.warn('[LOG][PUBLIC_REPORT_PAYMENT] Error: Cuota no encontrada con ID:', quotaId);
       return next(new AppError('Cuota no encontrada', 404));
     }
+
+    console.log('[LOG][PUBLIC_REPORT_PAYMENT] Cuota encontrada antes de actualizar:', {
+      quotaId: quota._id,
+      contract: quota.contract,
+      number: quota.number,
+      value: quota.value,
+      amountPaid: quota.amountPaid,
+      status: quota.status,
+      prevPaymentDate: quota.paymentDate
+    });
 
     let captureUrl = null;
     if (file) {
       captureUrl = await uploadToR2(file, 'payments');
+      console.log('[LOG][PUBLIC_REPORT_PAYMENT] Archivo subido exitosamente:', captureUrl);
     }
+
+    const targetDate = paymentDate || fechaPago || new Date();
+    console.log('[LOG][PUBLIC_REPORT_PAYMENT] Fecha determinada para el pago:', targetDate);
 
     // Update quota with pending payment info
     // Client payments are always PENDING
     quota.status = 'pendiente'; 
     quota.amountPaid = amount || quota.value;
     quota.paymentBank = bank;
+    quota.paymentMethod = paymentMethod;
     quota.paymentObservations = observations;
-    quota.paymentDate = paymentDate || new Date();
+    quota.paymentDate = targetDate;
     if (captureUrl) {
       quota.paymentCapture = captureUrl;
     }
 
     await quota.save();
+    console.log('[LOG][PUBLIC_REPORT_PAYMENT] Cuota guardada exitosamente con ID:', quota._id);
 
     // Update client contact info if provided
     try {
       const contract = await Contract.findById(quota.contract);
       if (contract) {
+        console.log('[LOG][PUBLIC_REPORT_PAYMENT] Contrato relacionado:', {
+          contractId: contract._id,
+          clientId: contract.client
+        });
         const client = await Client.findById(contract.client);
         if (client) {
           let updated = false;
           if (phone && phone !== client.phone) {
+            console.log(`[LOG][PUBLIC_REPORT_PAYMENT] Actualizando teléfono de ${client.phone} a ${phone}`);
             client.phone = phone;
             updated = true;
           }
           if (email && email !== client.email) {
+            console.log(`[LOG][PUBLIC_REPORT_PAYMENT] Actualizando email de ${client.email} a ${email}`);
             client.email = email;
             updated = true;
           }
-          if (updated) await client.save();
+          if (updated) {
+            await client.save();
+            console.log('[LOG][PUBLIC_REPORT_PAYMENT] Información del cliente actualizada exitosamente');
+          }
         }
       }
     } catch (err) {
-      console.error('Error updating client info during payment report:', err);
+      console.error('[LOG][PUBLIC_REPORT_PAYMENT] Error updating client info during payment report:', err);
       // We don't block the payment report if client update fails
     }
 
@@ -183,6 +307,7 @@ export const reportPayment = async (req, res, next) => {
       message: 'Pago reportado exitosamente. Pendiente de aprobación.',
     });
   } catch (error) {
+    console.error('[LOG][PUBLIC_REPORT_PAYMENT] Error crítico:', error);
     next(error);
   }
 };

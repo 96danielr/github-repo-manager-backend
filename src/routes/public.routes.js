@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { getClientInfo, reportPayment, getReceiptPDF, getCompanyAccountsPublic } from '../controllers/public.controller.js';
+import { getClientInfo, reportPayment, getReceiptPDF, getCompanyAccountsPublic, getStatementPDF } from '../controllers/public.controller.js';
 
 const router = express.Router();
 
@@ -27,5 +27,6 @@ router.post('/report-payment', upload.single('capture'), reportPayment);
 
 // Dynamic dynamic receipt generation
 router.get('/receipt/:quotaId', getReceiptPDF);
+router.get('/statement/:contractId', getStatementPDF);
 
 export default router;

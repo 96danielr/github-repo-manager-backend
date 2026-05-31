@@ -137,11 +137,12 @@ export const generateReceiptStream = async (data, res) => {
     lotInfo,
     paymentBank,
     observations,
+    paymentCapture,
   } = data;
 
   const doc = new PDFDocument({ 
     size: 'LETTER',
-    margins: { top: 35, bottom: 35, left: 35, right: 35 } 
+    margins: { top: 35, bottom: 0, left: 35, right: 35 } 
   });
 
   // Stream directly to response
@@ -382,16 +383,77 @@ export const generateReceiptStream = async (data, res) => {
   doc.restore();
 
   doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#757575').text('ANEXOS', 310, bottomY + 6);
-  doc.fontSize(8.5).font('Helvetica').fillColor('#757575').text('Adjuntar archivo  📎', 310, bottomY + 22);
-  doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#9e9e9e').text('Comprobante validado electrónicamente en sistema.', 310, bottomY + 38);
+  if (paymentCapture) {
+    const isPdf = paymentCapture.toLowerCase().endsWith('.pdf') || paymentCapture.toLowerCase().includes('.pdf?');
+    doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#2e7d32').text('COMPROBANTE ADJUNTO  ✓', 310, bottomY + 22);
+    if (isPdf) {
+      doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#007cba').text('Ver archivo PDF adjunto', 310, bottomY + 38, { link: paymentCapture });
+    } else {
+      doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#2e7d32').text('Imagen adjunta (Ver pág. 2)', 310, bottomY + 38);
+    }
+  } else {
+    doc.fontSize(8.5).font('Helvetica').fillColor('#757575').text('Sin archivo adjunto  📎', 310, bottomY + 22);
+    doc.fontSize(7.5).font('Helvetica-Oblique').fillColor('#9e9e9e').text('Comprobante validado electrónicamente en sistema.', 310, bottomY + 38);
+  }
 
   // ================= FOOTER =================
-  doc.moveDown(4);
   doc.fontSize(7.5)
      .font('Helvetica')
      .fillColor('#9e9e9e')
      .text('Este documento es un comprobante de pago oficial emitido de manera electrónica.', 35, 740, { align: 'center', width: 542 });
   doc.text(`Generado digitalmente en el sistema de gestión el: ${new Date().toLocaleString()}`, { align: 'center', width: 542 });
+
+  // ================= RENDER ATTACHMENT IF IMAGE =================
+  if (paymentCapture) {
+    const isPdf = paymentCapture.toLowerCase().endsWith('.pdf') || paymentCapture.toLowerCase().includes('.pdf?');
+    if (!isPdf) {
+      try {
+        const response = await fetch(paymentCapture);
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const imageBuffer = Buffer.from(arrayBuffer);
+
+          doc.addPage({
+            size: 'LETTER',
+            margins: { top: 35, bottom: 0, left: 35, right: 35 }
+          });
+
+          // Header for Page 2
+          doc.save();
+          doc.fillColor('#2c3e50');
+          doc.rect(35, 15, 542, 6).fill();
+          doc.restore();
+
+          doc.fontSize(11)
+             .font('Helvetica-Bold')
+             .fillColor('#2c3e50')
+             .text('ANEXO: COMPROBANTE DE PAGO', 35, 35);
+
+          doc.fontSize(8.5)
+             .font('Helvetica')
+             .fillColor('#757575')
+             .text(`Recibo No ${quotaNumber} | Cliente: ${clientName.toUpperCase()}`, 35, 50);
+
+          doc.moveTo(35, 62).lineTo(577, 62).lineWidth(0.5).strokeColor('#cccccc').stroke();
+
+          // Render the image fitted to the printable area (Letter: 612 x 792)
+          doc.image(imageBuffer, 35, 80, {
+            fit: [542, 650],
+            align: 'center',
+            valign: 'center'
+          });
+        }
+      } catch (err) {
+        console.error('[RECEIPT_PDF_IMAGE_ATTACH_ERROR]', err);
+        // Do not crash, print warning on fallback page
+        doc.addPage({
+          size: 'LETTER',
+          margins: { top: 35, bottom: 0, left: 35, right: 35 }
+        });
+        doc.fontSize(10).fillColor('#c62828').text('Error al cargar la imagen del comprobante adjunto: ' + err.message, 35, 80);
+      }
+    }
+  }
 
   doc.end();
 };

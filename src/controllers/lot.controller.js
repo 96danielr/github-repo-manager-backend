@@ -63,7 +63,19 @@ export const getLots = async (req, res, next) => {
     // Run lazy cleanup for expired reservations
     await checkLotExpirations(tenantId, companyId);
 
-    const { page = 1, limit = 10, search, sortBy, order, status } = req.query;
+    const { 
+      page = 1, 
+      limit = 10, 
+      search, 
+      sortBy, 
+      order, 
+      status,
+      manzana,
+      stage,
+      sellerId,
+      minArea,
+      maxArea
+    } = req.query;
     const skip = (page - 1) * limit;
 
     // Dynamic sort
@@ -76,6 +88,20 @@ export const getLots = async (req, res, next) => {
 
     if (status) {
       query.status = status;
+    }
+    if (manzana) {
+      query.manzana = { $regex: manzana.trim(), $options: 'i' };
+    }
+    if (stage) {
+      query.stage = { $regex: stage.trim(), $options: 'i' };
+    }
+    if (sellerId) {
+      query.sellerId = sellerId;
+    }
+    if (minArea || maxArea) {
+      query.area = {};
+      if (minArea) query.area.$gte = parseFloat(minArea);
+      if (maxArea) query.area.$lte = parseFloat(maxArea);
     }
 
     // If seller role, show:
@@ -94,10 +120,17 @@ export const getLots = async (req, res, next) => {
       const searchFilter = {
         $or: [
           { stage: { $regex: search, $options: 'i' } },
+          { manzana: { $regex: search, $options: 'i' } },
           { nomenclature: { $regex: search, $options: 'i' } },
           { lotNumber: { $regex: search, $options: 'i' } },
+          { reference: { $regex: search, $options: 'i' } },
         ],
       };
+
+      const searchNum = parseFloat(search);
+      if (!isNaN(searchNum)) {
+        searchFilter.$or.push({ area: searchNum });
+      }
       
       // If we already have a $or from the role check, combine with $and
       if (query.$or) {
