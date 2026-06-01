@@ -78,7 +78,7 @@ const resendEmailProvider = {
       console.log(`[EMAIL RESEND ATTEMPT] To: ${to}, Subject: ${subject}`);
       
       const { data, error } = await getResend().emails.send({
-        from: process.env.EMAIL_FROM || 'Recaudos <onboarding@resend.dev>',
+        from: process.env.EMAIL_FROM || 'Recaudos <info@operix.com.co>',
         to: [to],
         subject,
         html: htmlMessage,
