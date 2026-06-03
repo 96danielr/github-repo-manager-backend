@@ -91,7 +91,7 @@ export const getPayments = async (req, res, next) => {
         path: 'contract',
         populate: [
           { path: 'client', select: 'name idNumber phone' },
-          { path: 'lot', select: 'lotNumber stage nomenclature area' },
+          { path: 'lot', select: 'lotNumber stage nomenclature area manzana' },
         ],
       })
       .sort(sortObj)
@@ -129,8 +129,9 @@ export const getPayments = async (req, res, next) => {
             project: {
               name: qObj.contract?.lot?.stage || 'Sin proyecto',
             },
-            manzana: qObj.contract?.lot?.lotNumber || '-',
+            manzana: qObj.contract?.lot?.manzana || '-',
             nomenclatura: qObj.contract?.lot?.nomenclature || '-',
+            lotNumber: qObj.contract?.lot?.lotNumber || '-',
           },
         },
         createdAt: qObj.createdAt,
@@ -328,8 +329,12 @@ export const rejectPayment = async (req, res, next) => {
  */
 export const registerManualPayment = async (req, res, next) => {
   try {
-    const { tenantId, companyId } = req.user;
+    const { tenantId, companyId, role } = req.user;
     const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod } = req.body;
+
+    if ((bank === 'Cruce de cuentas' || paymentMethod === 'Cruce de cuentas') && role !== 'admin') {
+      return next(new AppError('No tienes permiso para registrar pagos por cruce de cuentas', 403));
+    }
     const file = req.file;
 
     console.log('[LOG][REGISTER_MANUAL_PAYMENT] Solicitud de pago manual recibida:', {

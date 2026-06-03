@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { importExcel, exportExcel, downloadTemplate } from '../controllers/import.controller.js';
+import { importExcel, exportExcel, downloadTemplate, downloadLotsOnlyTemplate, importLotsOnly } from '../controllers/import.controller.js';
 import { protect, checkPermission } from '../middleware/auth.js';
 import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -31,10 +31,17 @@ const upload = multer({
 // Route for Excel import (requires company context)
 router.post('/excel', protect, checkPermission(PERMISSIONS.IMPORT_MANAGE), tenantMiddleware, upload.single('file'), companyMiddleware, importExcel);
 
+// Route for Lot-only Excel import (requires company context)
+router.post('/excel-lots', protect, checkPermission(PERMISSIONS.IMPORT_MANAGE), tenantMiddleware, upload.single('file'), companyMiddleware, importLotsOnly);
+
 // Route for Excel export (requires company context)
 router.get('/export', protect, tenantMiddleware, companyMiddleware, exportExcel);
 
 // Route for Excel template download (public)
 router.get('/template', downloadTemplate);
 
+// Route for Lot-only Excel template download (public)
+router.get('/template-lots', downloadLotsOnlyTemplate);
+
 export default router;
+

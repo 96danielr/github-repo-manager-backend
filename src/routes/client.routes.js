@@ -221,7 +221,7 @@ router.get('/:id', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_DETAI
     }
 
     // Get contracts for this client
-    const contracts = await Contract.find({ client: id, tenantId, companyId });
+    const contracts = await Contract.find({ client: id, tenantId, companyId }).populate('lot');
     
     // For each contract, get stats
     const contractsWithStats = await Promise.all(contracts.map(async (contract) => {

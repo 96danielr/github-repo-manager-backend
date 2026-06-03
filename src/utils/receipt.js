@@ -353,7 +353,7 @@ export const generateReceiptStream = async (data, res) => {
 
   doc.fontSize(8.5).font('Helvetica-Bold').text('Observaciones:', 40, obsY + 6);
   doc.fontSize(8.5).font('Helvetica').text(
-    observations || `Pago por cuota registrado el día ${formattedDate} a favor del fideicomiso.`,
+    observations || `Pago por cuota registrado el día ${formattedDate} a favor del cliente.`,
     40, obsY + 18,
     { width: 532, height: 38, lineGap: 2 }
   );

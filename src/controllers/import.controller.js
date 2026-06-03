@@ -712,3 +712,199 @@ export const downloadTemplate = async (req, res) => {
     });
   }
 };
+
+/**
+ * Generates an Excel template with headers for lot-only data import
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ */
+export const downloadLotsOnlyTemplate = async (req, res) => {
+  try {
+    const headers = ['Etapa', 'Manzana', 'Lote', 'Valor', 'Area'];
+    const row = ['Etapa 1', 'Mz A', 'Lote 5', 45000000, 120];
+    const templateData = [headers, row];
+
+    const worksheet = XLSX.utils.aoa_to_sheet(templateData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla Lotes');
+    
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=plantilla-lotes.xlsx');
+    res.send(buffer);
+  } catch (error) {
+    console.error('Template error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error al generar la plantilla de lotes', 
+      error: error.message, 
+    });
+  }
+};
+
+/**
+ * Parses an Excel file containing only lot details for new projects
+ * @param {Object} req - Express request
+ * @param {Object} res - Express response
+ */
+export const importLotsOnly = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No se subió ningún archivo' });
+    }
+
+    const { tenantId, companyId } = req.user;
+
+    // Read workbook from buffer
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    
+    // Convert to JSON for processing rows
+    const data = XLSX.utils.sheet_to_json(sheet, { defval: null });
+
+    let summary = {
+      totalRows: data.length,
+      lotsCreated: 0,
+      lotsUpdated: 0,
+      rowsProcessed: 0,
+      rowsSkipped: 0,
+    };
+
+    let errors = [];
+    let warnings = [];
+
+    const getVal = (row, keyName) => {
+      const keys = Object.keys(row);
+      const targetClean = keyName.toLowerCase().replace(/\s+/g, ' ').trim();
+      
+      const exactKey = keys.find((k) => {
+        const kClean = k.toLowerCase().replace(/\s+/g, ' ').trim();
+        return kClean === targetClean;
+      });
+      
+      if (exactKey) return row[exactKey];
+
+      const prefixKey = keys.find((k) => {
+        const kClean = k.toLowerCase().replace(/\s+/g, ' ').trim();
+        return kClean.startsWith(targetClean + '.');
+      });
+      
+      return prefixKey ? row[prefixKey] : undefined;
+    };
+
+    const getValMulti = (row, ...keys) => {
+      for (const key of keys) {
+        const val = getVal(row, key);
+        if (val !== undefined && val !== null && val !== '') return val;
+      }
+      return undefined;
+    };
+
+    // Load existing lots for duplicate prevention
+    const existingLots = await Lot.find({ tenantId, companyId });
+    const lotMap = new Map();
+    existingLots.forEach((l) => {
+      const ref = (l.reference || '').toString().trim().toLowerCase();
+      const nom = (l.nomenclature || '').toString().trim().toLowerCase();
+      const key = `${ref}|${nom}`;
+      lotMap.set(key, l);
+
+      const s = (l.stage || '').toString().trim().toLowerCase();
+      const m = (l.manzana || '').toString().trim().toLowerCase();
+      const num = (l.lotNumber || '').toString().trim().toLowerCase();
+      lotMap.set(`${s}|${m}|${num}`, l);
+    });
+
+    const lotOps = [];
+
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      const rowNum = i + 2;
+
+      try {
+        const stage = getValMulti(row, 'Etapa', 'stage', 'etapa', 'Etapa (Stage)')?.toString().trim() || 'Etapa 1';
+        const manzana = getValMulti(row, 'Manzana', 'block', 'manzana', 'Manzana (Block)')?.toString().trim() || '';
+        const lotNumber = getValMulti(row, 'Lote', 'lote', 'lot', 'lotNumber', 'Número de lote')?.toString().trim();
+        
+        if (!lotNumber) {
+          summary.rowsSkipped++;
+          summary.rowsProcessed++;
+          continue;
+        }
+
+        const price = parseNumStringWithLocalization(getValMulti(row, 'Valor', 'precio', 'price', 'Valor del lote', 'Valor predio', 'Valor del lote o predio'));
+        const area = parseNumStringWithLocalization(getValMulti(row, 'Area', 'área', 'area', 'Área (m²)'));
+
+        // Generate nomenclature and reference
+        const nomenclature = manzana ? `Mz ${manzana} Lote ${lotNumber}` : `Lote ${lotNumber}`;
+        const reference = `${stage}-${manzana}-${lotNumber}`;
+
+        const refClean = reference.toLowerCase();
+        const nomClean = nomenclature.toLowerCase();
+        const lotKey = `${refClean}|${nomClean}`;
+        const naturalKey = `${stage.toLowerCase()}|${manzana.toLowerCase()}|${lotNumber.toLowerCase()}`;
+
+        let lot = lotMap.get(lotKey) || lotMap.get(naturalKey);
+
+        const lotData = {
+          stage,
+          manzana,
+          nomenclature,
+          lotNumber,
+          reference,
+          area: area || undefined,
+          price: price || undefined,
+          status: lot?.status || 'disponible',
+          tenantId,
+          companyId,
+          excelRowId: rowNum,
+        };
+
+        if (!lot) {
+          const newId = new mongoose.Types.ObjectId();
+          lot = { ...lotData, _id: newId };
+          lotMap.set(lotKey, lot);
+          lotOps.push({
+            insertOne: { document: lot },
+          });
+          summary.lotsCreated++;
+        } else {
+          lotOps.push({
+            updateOne: {
+              filter: { _id: lot._id },
+              update: { $set: lotData },
+            },
+          });
+          summary.lotsUpdated++;
+        }
+
+        summary.rowsProcessed++;
+      } catch (err) {
+        console.error(`Error processing lot row ${rowNum}:`, err);
+        errors.push(`Fila ${rowNum}: ${err.message}`);
+      }
+    }
+
+    if (lotOps.length > 0) {
+      await Lot.bulkWrite(lotOps);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Carga masiva de lotes completada con éxito',
+      summary,
+      errors,
+      warnings,
+    });
+  } catch (error) {
+    console.error('Import lots error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al procesar el archivo de lotes',
+      error: error.message,
+    });
+  }
+};
+

@@ -47,7 +47,9 @@ export const getReceiptPDF = async (req, res, next) => {
       companyAddress: company?.address || '',
       companyPhone: company?.phone || '',
       companyLogo: company?.logo || '',
-      lotInfo: `Lote ${quota.contract.lot?.lotNumber || ''} - ${quota.contract.lot?.stage || ''}`,
+      lotInfo: quota.contract.lot 
+        ? `Etapa: ${quota.contract.lot.stage || '-'} - Manzana: ${quota.contract.lot.manzana || '-'} - Lote: ${quota.contract.lot.lotNumber || '-'}${quota.contract.lot.nomenclature ? ` (${quota.contract.lot.nomenclature})` : ''}`
+        : 'N/A',
       paymentBank: quota.paymentBank,
       observations: quota.paymentObservations,
       paymentCapture: quota.paymentCapture,
@@ -101,7 +103,7 @@ export const getStatementPDF = async (req, res, next) => {
     const cuotasNormalesPagadas = normalQuotas.filter(q => q.status === 'pagado').length;
 
     const lotInfo = contract.lot 
-      ? `MZ: ${contract.lot.manzana || 'N/A'} - Lote: ${contract.lot.nomenclature || contract.lot.lotNumber || 'N/A'}${contract.lot.stage ? ` (${contract.lot.stage})` : ''}`
+      ? `Etapa: ${contract.lot.stage || '-'} - Manzana: ${contract.lot.manzana || '-'} - Lote: ${contract.lot.lotNumber || '-'}${contract.lot.nomenclature ? ` (${contract.lot.nomenclature})` : ''}`
       : 'N/A';
 
     const statementData = {
@@ -210,6 +212,10 @@ export const getClientInfo = async (req, res, next) => {
 export const reportPayment = async (req, res, next) => {
   try {
     const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod, phone, email } = req.body;
+    
+    if (bank === 'Cruce de cuentas' || paymentMethod === 'Cruce de cuentas') {
+      return next(new AppError('No tienes permiso para reportar pagos con cruce de cuentas', 403));
+    }
     const file = req.file;
 
     console.log('[LOG][PUBLIC_REPORT_PAYMENT] Petición recibida:', {

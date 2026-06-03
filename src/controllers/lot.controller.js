@@ -725,6 +725,12 @@ export const reserveLot = async (req, res, next) => {
 
     // 3. Update Lot
     const days = parseInt(expirationDays) || (type === 'separado' ? 30 : 5);
+    if (type === 'separado' && days > 30) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'El plazo de separación no puede superar los 30 días' 
+      });
+    }
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + days);
 

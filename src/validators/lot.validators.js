@@ -13,6 +13,8 @@ export const reserveLotValidation = z.object({
       .optional(),
     clientData: z.record(z.string(), z.any()).optional(),
     amount: z.coerce.number({ invalid_type_error: 'El monto debe ser un número' })
+      .optional(),
+    expirationDays: z.coerce.number({ invalid_type_error: 'Los días de expiración deben ser un número' })
       .optional()
   }).refine(data => {
     if (data.type === 'separado' && (!data.amount || data.amount < 500000)) {
@@ -22,6 +24,14 @@ export const reserveLotValidation = z.object({
   }, {
     message: 'Para separar se requiere un monto mínimo de $500,000',
     path: ['amount']
+  }).refine(data => {
+    if (data.type === 'separado' && data.expirationDays && data.expirationDays > 30) {
+      return false;
+    }
+    return true;
+  }, {
+    message: 'El plazo de separación no puede superar los 30 días',
+    path: ['expirationDays']
   })
 });
 
