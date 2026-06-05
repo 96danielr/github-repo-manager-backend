@@ -4,6 +4,7 @@
  */
 
 import { Resend } from 'resend';
+import twilio from 'twilio';
 
 const SENDME_API_BASE = 'https://app.sendme123.com/api';
 const SENDME_API_KEY = process.env.SENDME_API_KEY;
@@ -19,6 +20,19 @@ const getResend = () => {
     _resend = new Resend(RESEND_API_KEY);
   }
   return _resend;
+};
+
+let _twilioClient = null;
+const getTwilioClient = () => {
+  if (!_twilioClient) {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    if (!accountSid || !authToken) {
+      throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are not configured in environment variables');
+    }
+    _twilioClient = twilio(accountSid, authToken);
+  }
+  return _twilioClient;
 };
 
 // --- SMS Providers ---
@@ -59,10 +73,106 @@ const sendMeSMSProvider = {
   },
 };
 
+const formatTwilioPhone = (phone) => {
+  let cleaned = phone.toString().replace(/\D/g, '');
+  if (cleaned.length === 10 && cleaned.startsWith('3')) {
+    cleaned = '57' + cleaned;
+  }
+  return `+${cleaned}`;
+};
+
+const twilioSMSProvider = {
+  send: async (to, message) => {
+    try {
+      const from = process.env.TWILIO_SMS_FROM;
+      if (!from) {
+        throw new Error('TWILIO_SMS_FROM is not configured');
+      }
+
+      const cleanTo = formatTwilioPhone(to);
+      const client = getTwilioClient();
+
+      const response = await client.messages.create({
+        to: cleanTo,
+        from: from,
+        body: message,
+      });
+
+      console.log(`[SMS TWILIO SUCCESS] To: ${cleanTo}, Message: ${message.substring(0, 30)}... ID: ${response.sid}`);
+      return { success: true, provider: 'twilio', data: response };
+    } catch (error) {
+      console.error('[SMS TWILIO ERROR]', error);
+      return { success: false, error: error.message };
+    }
+  },
+};
+
 const dummySMSProvider = {
   send: async (to, message) => {
     console.log(`[SMS DUMMY PROVIDER] Sending to ${to}: ${message}`);
     return { success: true, provider: 'dummy', messageId: Date.now().toString() };
+  },
+};
+
+// --- WhatsApp Providers ---
+
+const twilioWhatsAppProvider = {
+  send: async (to, message) => {
+    try {
+      const from = process.env.TWILIO_WHATSAPP_FROM || `whatsapp:${process.env.TWILIO_SMS_FROM}`;
+      if (!from) {
+        throw new Error('TWILIO_WHATSAPP_FROM is not configured');
+      }
+
+      const cleanTo = formatTwilioPhone(to);
+      const whatsappTo = `whatsapp:${cleanTo}`;
+      const whatsappFrom = from.startsWith('whatsapp:') ? from : `whatsapp:${from}`;
+
+      const client = getTwilioClient();
+
+      const response = await client.messages.create({
+        to: whatsappTo,
+        from: whatsappFrom,
+        body: message,
+      });
+
+      console.log(`[WHATSAPP TWILIO SUCCESS] To: ${whatsappTo}, Message: ${message.substring(0, 30)}... ID: ${response.sid}`);
+      return { success: true, provider: 'twilio', data: response };
+    } catch (error) {
+      console.error('[WHATSAPP TWILIO ERROR]', error);
+      return { success: false, error: error.message };
+    }
+  },
+};
+
+const metaWhatsAppProvider = {
+  send: async (to, message) => {
+    try {
+      const { whatsappService } = await import('../services/whatsapp.service.js');
+      const config = {
+        accessToken: process.env.WHATSAPP_ACCESS_TOKEN,
+        phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+        wabaId: process.env.WHATSAPP_WABA_ID
+      };
+
+      if (!config.accessToken || !config.phoneNumberId) {
+        throw new Error('Meta WhatsApp is not configured in environment variables');
+      }
+
+      const result = await whatsappService.sendTextMessage(config, to, message);
+      console.log(`[WHATSAPP META SUCCESS] To: ${to}, Message: ${message.substring(0, 30)}...`);
+      return { success: true, provider: 'meta', data: result };
+    } catch (error) {
+      console.error('[WHATSAPP META ERROR]', error);
+      return { success: false, error: error.message };
+    }
+  }
+};
+
+const dummyWhatsAppProvider = {
+  send: async (to, message) => {
+    console.log(`[WHATSAPP DUMMY PROVIDER] Sending to ${to}: ${message}`);
+    return { success: true, provider: 'dummy' };
   },
 };
 
@@ -142,6 +252,13 @@ const dummyEmailProvider = {
 const smsProviders = {
   dummy: dummySMSProvider,
   sendme: sendMeSMSProvider,
+  twilio: twilioSMSProvider,
+};
+
+const whatsappProviders = {
+  dummy: dummyWhatsAppProvider,
+  meta: metaWhatsAppProvider,
+  twilio: twilioWhatsAppProvider,
 };
 
 const emailProviders = {
@@ -151,6 +268,7 @@ const emailProviders = {
 };
 
 const activeSMSProvider = process.env.SMS_PROVIDER || 'sendme';
+const activeWhatsAppProvider = process.env.WHATSAPP_PROVIDER || 'dummy';
 const activeEmailProvider = process.env.EMAIL_PROVIDER || 'resend';
 const isNotificationsEnabled = process.env.ENABLE_NOTIFICATIONS === 'true';
 
@@ -163,6 +281,18 @@ export const sendSMS = async (to, message) => {
     return { success: true, provider: 'disabled', messageId: 'disabled' };
   }
   const provider = smsProviders[activeSMSProvider] || dummySMSProvider;
+  return await provider.send(to, message);
+};
+
+/**
+ * Send a WhatsApp message
+ */
+export const sendWhatsApp = async (to, message) => {
+  if (!isNotificationsEnabled) {
+    console.log(`[WHATSAPP DISABLED] Would have sent to ${to}: ${message}`);
+    return { success: true, provider: 'disabled' };
+  }
+  const provider = whatsappProviders[activeWhatsAppProvider] || dummyWhatsAppProvider;
   return await provider.send(to, message);
 };
 

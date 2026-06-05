@@ -3,7 +3,7 @@ import Contract from '../models/Contract.js';
 import Client from '../models/Client.js';
 import Company from '../models/Company.js';
 import AppError from '../utils/AppError.js';
-import { sendSMS, sendEmail } from '../utils/notifications.js';
+import { sendSMS, sendEmail, sendWhatsApp } from '../utils/notifications.js';
 import { logAudit } from '../utils/auditLogger.js';
 
 /**
@@ -181,11 +181,12 @@ const sendPaymentNotifications = async (req, quotaId, companyId) => {
       await Quota.findByIdAndUpdate(quotaId, { receiptUrl });
     }
     
-    // Send SMS
+    // Send SMS & WhatsApp
     const clientPhone = fullQuota.contract.client.phone;
     if (clientPhone) {
       const message = `Cordial saludo ${fullQuota.contract.client.name}, su recibo de la cuota #${fullQuota.number} por $${(fullQuota.amountPaid || fullQuota.value).toLocaleString()} de ${company?.name || 'nuestra empresa'}. Ver recibo: ${receiptUrl} | Estado de Cuenta: ${statementUrl}`;
       await sendSMS(clientPhone, message);
+      await sendWhatsApp(clientPhone, message);
     }
 
     // Send Email

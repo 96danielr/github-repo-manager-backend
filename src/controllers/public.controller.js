@@ -46,7 +46,7 @@ export const getReceiptPDF = async (req, res, next) => {
       companyNit: company?.nit || '',
       companyAddress: company?.address || '',
       companyPhone: company?.phone || '',
-      companyLogo: company?.logo || '',
+      companyLogo: company?.projectLogo || company?.logo || '',
       lotInfo: quota.contract.lot 
         ? `Etapa: ${quota.contract.lot.stage || '-'} - Manzana: ${quota.contract.lot.manzana || '-'} - Lote: ${quota.contract.lot.lotNumber || '-'}${quota.contract.lot.nomenclature ? ` (${quota.contract.lot.nomenclature})` : ''}`
         : 'N/A',
@@ -118,7 +118,7 @@ export const getStatementPDF = async (req, res, next) => {
       companyNit: company?.nit || '',
       companyAddress: company?.address || '',
       companyPhone: company?.phone || '',
-      companyLogo: company?.logo || '',
+      companyLogo: company?.projectLogo || company?.logo || '',
       // Financial numbers
       totalValue,
       totalPaid,

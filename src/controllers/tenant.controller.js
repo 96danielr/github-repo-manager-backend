@@ -10,7 +10,18 @@ import AppError from '../utils/AppError.js';
  */
 export const createTenantWithAdmin = async (req, res, next) => {
   try {
-    const { tenantName, fullName, email, password, plan, nit, documentoIdentidad } = req.body;
+    const { 
+      tenantName, 
+      fullName, 
+      email, 
+      password, 
+      plan, 
+      nit, 
+      documentoIdentidad, 
+      tenantAddress, 
+      tenantPhone, 
+      tenantEmail 
+    } = req.body;
 
     if (!tenantName || !fullName || !email || !password) {
       return next(new AppError('All fields are required', 400));
@@ -27,6 +38,10 @@ export const createTenantWithAdmin = async (req, res, next) => {
       name: tenantName,
       plan: plan || 'basic',
       status: 'active',
+      nit: nit,
+      address: tenantAddress,
+      phone: tenantPhone,
+      email: tenantEmail,
     });
 
     // 2. Create the UserAccount
@@ -50,6 +65,9 @@ export const createTenantWithAdmin = async (req, res, next) => {
       tenantId: newTenant._id,
       name: tenantName,
       nit: nit,
+      address: tenantAddress,
+      phone: tenantPhone,
+      email: tenantEmail,
     });
 
     res.status(201).json({
@@ -92,6 +110,10 @@ export const updateTenant = async (req, res, next) => {
       subscriptionEnd, 
       activeModules, 
       status, 
+      nit,
+      address,
+      phone,
+      email,
     } = req.body;
 
     const tenant = await Tenant.findById(id);
@@ -105,6 +127,53 @@ export const updateTenant = async (req, res, next) => {
     if (subscriptionEnd) tenant.subscriptionEnd = subscriptionEnd;
     if (activeModules) tenant.activeModules = activeModules;
     if (status) tenant.status = status;
+    if (nit !== undefined) tenant.nit = nit;
+    if (address !== undefined) tenant.address = address;
+    if (phone !== undefined) tenant.phone = phone;
+    if (email !== undefined) tenant.email = email;
+
+    await tenant.save();
+
+    res.json({
+      success: true,
+      data: { tenant },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getMyTenant = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user;
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      return next(new AppError('Tenant not found', 404));
+    }
+    res.json({
+      success: true,
+      data: { tenant },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateMyTenant = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user;
+    const { name, nit, address, phone, email } = req.body;
+
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      return next(new AppError('Tenant not found', 404));
+    }
+
+    if (name) tenant.name = name;
+    if (nit !== undefined) tenant.nit = nit;
+    if (address !== undefined) tenant.address = address;
+    if (phone !== undefined) tenant.phone = phone;
+    if (email !== undefined) tenant.email = email;
 
     await tenant.save();
 
