@@ -267,8 +267,8 @@ const emailProviders = {
   resend: resendEmailProvider,
 };
 
-const activeSMSProvider = process.env.SMS_PROVIDER || 'sendme';
-const activeWhatsAppProvider = process.env.WHATSAPP_PROVIDER || 'dummy';
+const activeSMSProvider = process.env.SMS_PROVIDER || 'twilio';
+const activeWhatsAppProvider = process.env.WHATSAPP_PROVIDER || 'twilio';
 const activeEmailProvider = process.env.EMAIL_PROVIDER || 'resend';
 const isNotificationsEnabled = process.env.ENABLE_NOTIFICATIONS === 'true';
 

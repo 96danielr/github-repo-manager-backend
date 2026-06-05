@@ -12,7 +12,8 @@ import { generateStatementStream } from '../utils/statement.js';
  */
 export const getReceiptPDF = async (req, res, next) => {
   try {
-    const { quotaId } = req.params;
+    let { quotaId } = req.params;
+    quotaId = quotaId.replace(/[^a-fA-F0-9]/g, '');
 
     const quota = await Quota.findById(quotaId)
       .populate({
@@ -66,7 +67,8 @@ export const getReceiptPDF = async (req, res, next) => {
  */
 export const getStatementPDF = async (req, res, next) => {
   try {
-    const { contractId } = req.params;
+    let { contractId } = req.params;
+    contractId = contractId.replace(/[^a-fA-F0-9]/g, '');
 
     const contract = await Contract.findById(contractId)
       .populate('client')
