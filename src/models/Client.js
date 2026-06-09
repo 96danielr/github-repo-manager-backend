@@ -49,6 +49,19 @@ const clientSchema = new mongoose.Schema({
     ref: 'User',
     required: false,
   },
+  validationToken: {
+    type: String,
+    unique: true,
+    sparse: true,
+  },
+  isEmailVerified: {
+    type: Boolean,
+    default: false,
+  },
+  isPhoneVerified: {
+    type: Boolean,
+    default: false,
+  },
   excelRowId: Number,
 }, { timestamps: true });
 

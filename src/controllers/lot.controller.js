@@ -446,7 +446,25 @@ export const sellLot = async (req, res, next) => {
       }
     }
 
-    const bonusValueParsed = parseFloat(bonusValue) || 0;
+    let bonusValueParsed = 0;
+    let bonusName = '';
+    let bonusIdUsed = null;
+
+    if (req.body.bonusId) {
+      try {
+        const Bonus = (await import('../models/Bonus.js')).default;
+        const dbBonus = await Bonus.findOne({ _id: req.body.bonusId, tenantId, companyId, isActive: true });
+        if (!dbBonus) {
+          return res.status(400).json({ success: false, message: 'El bono seleccionado no es válido o no está activo' });
+        }
+        bonusValueParsed = dbBonus.value;
+        bonusName = dbBonus.name;
+        bonusIdUsed = dbBonus._id;
+      } catch (bonusError) {
+        return res.status(400).json({ success: false, message: 'Error al validar el bono seleccionado' });
+      }
+    }
+
     const baseTotalValue = totalValue || lot.price || 0;
     const finalTotalValue = baseTotalValue - bonusValueParsed;
 
@@ -474,11 +492,13 @@ export const sellLot = async (req, res, next) => {
       startDate: startDate || new Date(),
       negotiation,
       sellerId: effectiveSellerId,
-      bonus,
+      bonus: bonusName,
+      bonusId: bonusIdUsed,
       bonusValue: bonusValueParsed,
       paymentDay: parseInt(paymentDay) || null,
       status: 'ACTIVO',
     });
+
 
     // 4. Mark Lot as Sold
     lot.status = 'vendido';
@@ -572,6 +592,15 @@ export const sellLot = async (req, res, next) => {
 
     if (quotas.length > 0) {
       await Quota.insertMany(quotas);
+    }
+
+    // Automatically register client to the portal and send welcome credentials email
+    try {
+      const { registerPortalUserForClient, sendPaymentPlanEmail } = await import('../utils/clientAuthHelper.js');
+      await registerPortalUserForClient(client, tenantId, companyId);
+      await sendPaymentPlanEmail(client, quotas, contract, companyId);
+    } catch (authHelperError) {
+      console.error('Error executing welcome notifications in sellLot:', authHelperError);
     }
 
     await logAudit(req, {

@@ -25,6 +25,7 @@ import limitRoutes from './routes/limit.routes.js';
 import whatsappRoutes from './routes/whatsapp.routes.js';
 import reportRoutes from './routes/report.routes.js';
 import auditRoutes from './routes/audit.routes.js';
+import bonusRoutes from './routes/bonus.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 import connectDB from './config/database.js';
 
@@ -164,6 +165,7 @@ app.use('/api/limits', limitRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/bonuses', bonusRoutes);
 
 // 404 handler
 app.use((req, res) => {

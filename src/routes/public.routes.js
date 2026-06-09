@@ -29,4 +29,38 @@ router.post('/report-payment', upload.single('capture'), reportPayment);
 router.get('/receipt/:quotaId', getReceiptPDF);
 router.get('/statement/:contractId', getStatementPDF);
 
+// Public validation and OTP endpoints
+router.post('/:companySlug/verification/send-code', async (req, res, next) => {
+  try {
+    const { sendOTPCodePublic } = await import('../controllers/public.controller.js');
+    await sendOTPCodePublic(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+});
+router.post('/:companySlug/verification/verify-code', async (req, res, next) => {
+  try {
+    const { verifyOTPCodePublic } = await import('../controllers/public.controller.js');
+    await verifyOTPCodePublic(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+});
+router.get('/:companySlug/client-validation/:token', async (req, res, next) => {
+  try {
+    const { getClientByValidationToken } = await import('../controllers/public.controller.js');
+    await getClientByValidationToken(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+});
+router.post('/:companySlug/client-validation/confirm', async (req, res, next) => {
+  try {
+    const { confirmClientValidation } = await import('../controllers/public.controller.js');
+    await confirmClientValidation(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

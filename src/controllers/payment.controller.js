@@ -248,39 +248,80 @@ export const approvePayment = async (req, res, next) => {
       return next(new AppError('Cuota no encontrada', 404));
     }
 
-    console.log('[LOG][APPROVE_PAYMENT] Cuota encontrada para aprobar:', {
-      quotaId: quota._id,
-      contract: quota.contract,
-      number: quota.number,
-      value: quota.value,
-      status: quota.status,
-      amountPaid: quota.amountPaid,
-      paymentDate: quota.paymentDate
-    });
-
     if (quota.status === 'pagado') {
       console.warn('[LOG][APPROVE_PAYMENT] Advertencia: La cuota ya está en estado pagado:', quotaId);
       return next(new AppError('Esta cuota ya fue marcada como pagada', 400));
     }
 
-    quota.status = 'pagado';
-    
-    // Generate receipt and send notifications
-    try {
-      console.log('[LOG][APPROVE_PAYMENT] Generando notificaciones de pago...');
-      await sendPaymentNotifications(req, quotaId, companyId);
-    } catch (error) {
-      console.error('[LOG][APPROVE_PAYMENT] Error in receipt/notification flow:', error);
+    const paidQuotasAccumulator = [];
+
+    // Check if the reported amountPaid exceeds the remaining quota value
+    const quotaPendingValue = quota.value - (quota.amountPaid || 0);
+    const reportedAmount = quota.amountPaid || quota.value;
+
+    if (reportedAmount > quotaPendingValue) {
+      let excess = reportedAmount - quotaPendingValue;
+      console.log('[LOG][APPROVE_PAYMENT] Iniciando cascada de aprobación por exceso. Excedente:', excess);
+
+      quota.status = 'pagado';
+      quota.amountPaid = quota.value;
+      await quota.save();
+      paidQuotasAccumulator.push(quota._id);
+
+      const queryFilter = {
+        contract: quota.contract,
+        tenantId,
+        companyId,
+        _id: { $ne: quotaId },
+        status: { $in: ['pendiente', 'mora'] }
+      };
+
+      const pendingQuotas = await Quota.find(queryFilter).sort({ type: 1, number: 1 });
+      for (const pq of pendingQuotas) {
+        if (excess <= 0) break;
+
+        const pqPendingValue = pq.value - (pq.amountPaid || 0);
+        if (excess >= pqPendingValue) {
+          pq.status = 'pagado';
+          pq.amountPaid = pq.value;
+          pq.paymentBank = quota.paymentBank;
+          pq.paymentMethod = quota.paymentMethod;
+          pq.paymentObservations = `${quota.paymentObservations || ''} (Aprobación excedente cascada de cuota #${quota.number})`;
+          pq.paymentDate = quota.paymentDate || new Date();
+          pq.paymentCapture = quota.paymentCapture;
+          await pq.save();
+          paidQuotasAccumulator.push(pq._id);
+          excess -= pqPendingValue;
+        } else {
+          pq.amountPaid = (pq.amountPaid || 0) + excess;
+          pq.paymentBank = quota.paymentBank;
+          pq.paymentMethod = quota.paymentMethod;
+          pq.paymentObservations = `${quota.paymentObservations || ''} (Aprobación abono excedente cascada de cuota #${quota.number})`;
+          pq.paymentDate = quota.paymentDate || new Date();
+          pq.paymentCapture = quota.paymentCapture;
+          await pq.save();
+          // We don't mark as fully paid, but save it and stop cascade
+          excess = 0;
+        }
+      }
+    } else {
+      quota.status = 'pagado';
+      await quota.save();
+      paidQuotasAccumulator.push(quota._id);
     }
 
-    await quota.save();
-    console.log('[LOG][APPROVE_PAYMENT] Cuota aprobada y guardada exitosamente en la base de datos:', quota._id);
+    try {
+      const { sendConsolidatedPaymentNotifications } = await import('../utils/consolidatedNotifications.js');
+      await sendConsolidatedPaymentNotifications(req, paidQuotasAccumulator, companyId);
+    } catch (notificationError) {
+      console.error('[LOG][APPROVE_PAYMENT] Error sending consolidated notifications:', notificationError);
+    }
 
     await logAudit(req, {
       action: 'APPROVE_PAYMENT',
       module: 'PAYMENTS',
       targetId: quota._id,
-      details: { amount: quota.amountPaid || quota.value, cuotaNumber: quota.number }
+      details: { amount: quota.amountPaid || quota.value, cuotaNumber: quota.number, approvedCount: paidQuotasAccumulator.length }
     });
 
     res.json({
@@ -381,6 +422,8 @@ export const registerManualPayment = async (req, res, next) => {
     const paidAmount = parseFloat(amount) || quota.value;
     const quotaPendingValue = quota.value - (quota.amountPaid || 0);
 
+    const paidQuotasAccumulator = [];
+
     console.log('[LOG][REGISTER_MANUAL_PAYMENT] Montos a procesar:', {
       paidAmount,
       quotaPendingValue,
@@ -402,13 +445,8 @@ export const registerManualPayment = async (req, res, next) => {
         quota.paymentCapture = captureUrl;
       }
       await quota.save();
+      paidQuotasAccumulator.push(quota._id);
       console.log('[LOG][REGISTER_MANUAL_PAYMENT] Cuota principal guardada y pagada en su totalidad.');
-
-      try {
-        await sendPaymentNotifications(req, quotaId, companyId);
-      } catch (error) {
-        console.error('[LOG][REGISTER_MANUAL_PAYMENT] Error in receipt/notification flow for primary quota:', error);
-      }
 
       // Fetch subsequent pending or in-mora quotas for this contract, sorted by type (inicial first) and number
       const queryFilter = {
@@ -451,13 +489,8 @@ export const registerManualPayment = async (req, res, next) => {
             pq.paymentCapture = captureUrl;
           }
           await pq.save();
+          paidQuotasAccumulator.push(pq._id);
           console.log(`[LOG][REGISTER_MANUAL_PAYMENT] Cuota #${pq.number} PAGADA totalmente con excedente.`);
-
-          try {
-            await sendPaymentNotifications(req, pq._id, companyId);
-          } catch (error) {
-            console.error('[LOG][REGISTER_MANUAL_PAYMENT] Error in receipt/notification flow for cascaded quota:', error);
-          }
 
           excess -= pqPendingValue;
         } else {
@@ -488,13 +521,15 @@ export const registerManualPayment = async (req, res, next) => {
         quota.paymentCapture = captureUrl;
       }
       await quota.save();
+      paidQuotasAccumulator.push(quota._id);
       console.log('[LOG][REGISTER_MANUAL_PAYMENT] Cuota guardada exitosamente.');
+    }
 
-      try {
-        await sendPaymentNotifications(req, quotaId, companyId);
-      } catch (error) {
-        console.error('[LOG][REGISTER_MANUAL_PAYMENT] Error in admin receipt/notification flow:', error);
-      }
+    try {
+      const { sendConsolidatedPaymentNotifications } = await import('../utils/consolidatedNotifications.js');
+      await sendConsolidatedPaymentNotifications(req, paidQuotasAccumulator, companyId);
+    } catch (error) {
+      console.error('[LOG][REGISTER_MANUAL_PAYMENT] Error sending consolidated notifications:', error);
     }
 
     await logAudit(req, {
@@ -505,7 +540,8 @@ export const registerManualPayment = async (req, res, next) => {
         amount: quota.amountPaid, 
         bank, 
         cuotaNumber: quota.number,
-        paymentMethod
+        paymentMethod,
+        approvedCount: paidQuotasAccumulator.length
       }
     });
 

@@ -40,6 +40,7 @@ const contractSchema = new mongoose.Schema({
   startDate: Date,
   bonus: String,
   bonusValue: Number,
+  bonusId: { type: mongoose.Schema.Types.ObjectId, ref: 'Bonus', required: false },
   commercial: String,
   recaudadoSiigo2024: { type: Number, default: 0 },
   recaudadoSiigo2025: { type: Number, default: 0 },

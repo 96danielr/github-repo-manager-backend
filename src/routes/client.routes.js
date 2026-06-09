@@ -319,30 +319,12 @@ router.post('/', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_CREATE)
       createdBy: userId,
     });
 
-    // Automatically create a portal user account if password and email are provided
-    if (email && password) {
-      try {
-        let account = await UserAccount.findOne({ email });
-        
-        if (!account) {
-          account = await UserAccount.create({
-            email,
-            passwordHash: password,
-            fullName: name,
-          });
-        }
-
-        // Create the membership with client role and link to clientId
-        await User.create({
-          accountId: account._id,
-          tenantId,
-          role: 'cliente',
-          clientId: client._id, // Link to the newly created client
-        });
-      } catch (userError) {
-        console.error('Error creating portal user for client:', userError);
-        // We don't fail the whole request, but maybe log it
-      }
+    // Automatically register client to the portal and send validation token
+    try {
+      const { registerPortalUserForClient } = await import('../utils/clientAuthHelper.js');
+      await registerPortalUserForClient(client, tenantId, companyId, password);
+    } catch (authHelperError) {
+      console.error('Error executing registerPortalUserForClient:', authHelperError);
     }
 
     await logAudit(req, {
@@ -408,6 +390,68 @@ router.delete('/:id', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_EX
 
     res.json({ success: true, message: 'Cliente eliminado correctamente' });
   } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// POST /clients/resend-plan/:contractId
+router.post('/resend-plan/:contractId', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_DETAILS), async (req, res) => {
+  try {
+    const { tenantId, companyId } = req.user;
+    const { contractId } = req.params;
+
+    const contract = await Contract.findOne({ _id: contractId, tenantId, companyId });
+    if (!contract) {
+      return res.status(404).json({ success: false, message: 'Contrato no encontrado' });
+    }
+
+    const client = await Client.findOne({ _id: contract.client, tenantId, companyId });
+    if (!client) {
+      return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
+    }
+
+    const quotas = await Quota.find({ contract: contractId, tenantId, companyId }).sort({ type: 1, number: 1 });
+
+    const { sendPaymentPlanEmail } = await import('../utils/clientAuthHelper.js');
+    await sendPaymentPlanEmail(client, quotas, contract, companyId);
+
+    await logAudit(req, {
+      action: 'RESEND_PAYMENT_PLAN',
+      module: 'CLIENTS',
+      targetId: contract._id,
+      details: { clientId: client._id }
+    });
+
+    res.json({ success: true, message: 'Plan de pagos enviado exitosamente al correo del cliente' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// POST /clients/resend-welcome/:clientId
+router.post('/resend-welcome/:clientId', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_DETAILS), async (req, res) => {
+  try {
+    const { tenantId, companyId } = req.user;
+    const { clientId } = req.params;
+
+    const client = await Client.findOne({ _id: clientId, tenantId, companyId });
+    if (!client) {
+      return res.status(404).json({ success: false, message: 'Cliente no encontrado' });
+    }
+
+    const { resendWelcomeNotification } = await import('../utils/clientAuthHelper.js');
+    await resendWelcomeNotification(client, tenantId, companyId);
+
+    await logAudit(req, {
+      action: 'RESEND_WELCOME_VALIDATION',
+      module: 'CLIENTS',
+      targetId: client._id,
+      details: { name: client.name }
+    });
+
+    res.json({ success: true, message: 'Mensaje de bienvenida y validación de datos reenviado exitosamente' });
+  } catch (error) {
+    console.error('Error in resend-welcome:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

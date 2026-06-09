@@ -51,6 +51,7 @@ export const getReceiptPDF = async (req, res, next) => {
       lotInfo: quota.contract.lot 
         ? `Etapa: ${quota.contract.lot.stage || '-'} - Manzana: ${quota.contract.lot.manzana || '-'} - Lote: ${quota.contract.lot.lotNumber || '-'}${quota.contract.lot.nomenclature ? ` (${quota.contract.lot.nomenclature})` : ''}`
         : 'N/A',
+      projectName: quota.contract.negotiation || '',
       paymentBank: quota.paymentBank,
       observations: quota.paymentObservations,
       paymentCapture: quota.paymentCapture,
@@ -193,12 +194,30 @@ export const getClientInfo = async (req, res, next) => {
       };
     });
 
+    const maskEmail = (email) => {
+      if (!email || !email.includes('@')) return '';
+      const [local, domain] = email.split('@');
+      return local.length > 2
+        ? `${local[0]}${'*'.repeat(local.length - 2)}${local[local.length - 1]}@${domain}`
+        : `${local[0]}*@${domain}`;
+    };
+
+    const maskPhone = (phone) => {
+      if (!phone) return '';
+      const phStr = phone.toString();
+      return phStr.length > 4
+        ? '*'.repeat(phStr.length - 4) + phStr.slice(-4)
+        : phStr;
+    };
+
     res.json({
       success: true,
       data: {
         client: {
           name: client.name,
           idNumber: client.idNumber,
+          email: maskEmail(client.email),
+          phone: maskPhone(client.phone),
         },
         contracts: contractsWithQuotas,
       },
@@ -213,12 +232,16 @@ export const getClientInfo = async (req, res, next) => {
  */
 export const reportPayment = async (req, res, next) => {
   try {
-    const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod, phone, email } = req.body;
+    const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod, phone, email, otpToken } = req.body;
     
     if (bank === 'Cruce de cuentas' || paymentMethod === 'Cruce de cuentas') {
       return next(new AppError('No tienes permiso para reportar pagos con cruce de cuentas', 403));
     }
     const file = req.file;
+
+    if (!file) {
+      return next(new AppError('El comprobante de pago es obligatorio', 400));
+    }
 
     console.log('[LOG][PUBLIC_REPORT_PAYMENT] Petición recibida:', {
       quotaId,
@@ -230,6 +253,7 @@ export const reportPayment = async (req, res, next) => {
       paymentMethod,
       phone,
       email,
+      otpToken,
       hasFile: !!file
     });
 
@@ -238,10 +262,32 @@ export const reportPayment = async (req, res, next) => {
       return next(new AppError('El ID de la cuota es requerido', 400));
     }
 
+    // OTP Token verification
+    if (!otpToken) {
+      return next(new AppError('Verificación de identidad requerida (token no proporcionado)', 401));
+    }
+
+    const VerificationToken = (await import('../models/VerificationToken.js')).default;
+    const verifiedSession = await VerificationToken.findOne({
+      token: otpToken,
+      isUsed: false,
+      expiresAt: { $gt: new Date() }
+    });
+
+    if (!verifiedSession) {
+      return next(new AppError('Sesión o token de verificación expirado, inválido o ya utilizado', 401));
+    }
+
     const quota = await Quota.findById(quotaId);
     if (!quota) {
       console.warn('[LOG][PUBLIC_REPORT_PAYMENT] Error: Cuota no encontrada con ID:', quotaId);
       return next(new AppError('Cuota no encontrada', 404));
+    }
+
+    // Verify client matches this quota contract client
+    const contract = await Contract.findById(quota.contract);
+    if (!contract || contract.client.toString() !== verifiedSession.clientId.toString()) {
+      return next(new AppError('La cuota a reportar no pertenece al cliente verificado', 403));
     }
 
     console.log('[LOG][PUBLIC_REPORT_PAYMENT] Cuota encontrada antes de actualizar:', {
@@ -278,36 +324,32 @@ export const reportPayment = async (req, res, next) => {
     await quota.save();
     console.log('[LOG][PUBLIC_REPORT_PAYMENT] Cuota guardada exitosamente con ID:', quota._id);
 
+    // Mark the OTP token as used
+    verifiedSession.isUsed = true;
+    await verifiedSession.save();
+
     // Update client contact info if provided
     try {
-      const contract = await Contract.findById(quota.contract);
-      if (contract) {
-        console.log('[LOG][PUBLIC_REPORT_PAYMENT] Contrato relacionado:', {
-          contractId: contract._id,
-          clientId: contract.client
-        });
-        const client = await Client.findById(contract.client);
-        if (client) {
-          let updated = false;
-          if (phone && phone !== client.phone) {
-            console.log(`[LOG][PUBLIC_REPORT_PAYMENT] Actualizando teléfono de ${client.phone} a ${phone}`);
-            client.phone = phone;
-            updated = true;
-          }
-          if (email && email !== client.email) {
-            console.log(`[LOG][PUBLIC_REPORT_PAYMENT] Actualizando email de ${client.email} a ${email}`);
-            client.email = email;
-            updated = true;
-          }
-          if (updated) {
-            await client.save();
-            console.log('[LOG][PUBLIC_REPORT_PAYMENT] Información del cliente actualizada exitosamente');
-          }
+      const client = await Client.findById(contract.client);
+      if (client) {
+        let updated = false;
+        if (phone && phone !== client.phone) {
+          console.log(`[LOG][PUBLIC_REPORT_PAYMENT] Actualizando teléfono de ${client.phone} a ${phone}`);
+          client.phone = phone;
+          updated = true;
+        }
+        if (email && email !== client.email) {
+          console.log(`[LOG][PUBLIC_REPORT_PAYMENT] Actualizando email de ${client.email} a ${email}`);
+          client.email = email;
+          updated = true;
+        }
+        if (updated) {
+          await client.save();
+          console.log('[LOG][PUBLIC_REPORT_PAYMENT] Información del cliente actualizada exitosamente');
         }
       }
     } catch (err) {
       console.error('[LOG][PUBLIC_REPORT_PAYMENT] Error updating client info during payment report:', err);
-      // We don't block the payment report if client update fails
     }
 
     res.json({
@@ -341,6 +383,234 @@ export const getCompanyAccountsPublic = async (req, res, next) => {
         address: company.address || '',
         phone: company.phone || '',
         bankAccounts: company.bankAccounts ? company.bankAccounts.filter(acc => acc.isActive) : []
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Send OTP Code to client for secure payments page
+ */
+export const sendOTPCodePublic = async (req, res, next) => {
+  try {
+    const { companySlug } = req.params;
+    const { idNumber, type } = req.body; // type: 'email' | 'phone'
+
+    if (!idNumber || !type) {
+      return next(new AppError('Cédula y tipo de envío (email/phone) son requeridos', 400));
+    }
+
+    const company = await Company.findOne({ slug: companySlug });
+    if (!company) {
+      return next(new AppError('Empresa no encontrada', 404));
+    }
+
+    const client = await Client.findOne({ idNumber, companyId: company._id });
+    if (!client) {
+      return next(new AppError('Cliente no encontrado en esta empresa', 404));
+    }
+
+    let destination = '';
+    if (type === 'email') {
+      if (!client.email) {
+        return next(new AppError('El cliente no tiene un correo electrónico registrado', 400));
+      }
+      destination = client.email;
+    } else if (type === 'phone') {
+      if (!client.phone) {
+        return next(new AppError('El cliente no tiene un teléfono registrado', 400));
+      }
+      destination = client.phone;
+    } else {
+      return next(new AppError('Tipo de envío no válido', 400));
+    }
+
+    const { sendOTPCode } = await import('../utils/otpHelper.js');
+    const token = await sendOTPCode(client.tenantId, company._id, client._id, type, destination, company.name);
+
+    res.json({
+      success: true,
+      message: `Código de verificación enviado exitosamente a tu ${type === 'email' ? 'correo' : 'celular'}.`,
+      data: { token }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Verify OTP Code and return client's contracts and details securely
+ */
+export const verifyOTPCodePublic = async (req, res, next) => {
+  try {
+    const { companySlug } = req.params;
+    const { token, code } = req.body;
+
+    if (!token || !code) {
+      return next(new AppError('Token de sesión y código OTP son requeridos', 400));
+    }
+
+    const company = await Company.findOne({ slug: companySlug });
+    if (!company) {
+      return next(new AppError('Empresa no encontrada', 404));
+    }
+
+    const VerificationToken = (await import('../models/VerificationToken.js')).default;
+    const verification = await VerificationToken.findOne({
+      token,
+      code,
+      companyId: company._id,
+      isUsed: false,
+      expiresAt: { $gt: new Date() }
+    });
+
+    if (!verification) {
+      return next(new AppError('Código incorrecto, expirado o ya utilizado', 400));
+    }
+
+    // Load client info since they verified their identity
+    const client = await Client.findById(verification.clientId);
+    if (!client) {
+      return next(new AppError('Cliente no encontrado', 404));
+    }
+
+    const contracts = await Contract.find({ 
+      client: client._id,
+      companyId: company._id,
+    }).populate('lot').lean();
+
+    const contractIds = contracts.map(c => c._id);
+    const allQuotas = await Quota.find({ contract: { $in: contractIds } })
+      .sort({ type: 1, number: 1 })
+      .lean();
+
+    const contractsWithQuotas = contracts.map((contract) => {
+      const contractQuotas = allQuotas.filter(q => q.contract.toString() === contract._id.toString());
+      
+      return {
+        ...contract,
+        quotas: contractQuotas.map((q) => ({
+          _id: q._id,
+          number: q.number,
+          type: q.type,
+          value: q.value,
+          dueDate: q.dueDate,
+          status: q.status,
+        })),
+      };
+    });
+
+    res.json({
+      success: true,
+      message: 'Código verificado correctamente',
+      data: {
+        otpToken: token, // This will be sent back during reportPayment
+        client: {
+          name: client.name,
+          idNumber: client.idNumber,
+          phone: client.phone,
+          email: client.email,
+        },
+        contracts: contractsWithQuotas
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Retrieve client details by verification token (Client Validation Flow)
+ */
+export const getClientByValidationToken = async (req, res, next) => {
+  try {
+    const { companySlug, token } = req.params;
+
+    const company = await Company.findOne({ slug: companySlug });
+    if (!company) {
+      return next(new AppError('Empresa no encontrada', 404));
+    }
+
+    const client = await Client.findOne({
+      validationToken: token,
+      companyId: company._id
+    });
+
+    if (!client) {
+      return next(new AppError('Enlace de validación inválido o expirado', 404));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        name: client.name,
+        idNumber: client.idNumber,
+        email: client.email || '',
+        phone: client.phone || '',
+        isEmailVerified: client.isEmailVerified || false,
+        isPhoneVerified: client.isPhoneVerified || false,
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Confirm and save validated client info
+ */
+export const confirmClientValidation = async (req, res, next) => {
+  try {
+    const { companySlug } = req.params;
+    const { token, email, phone } = req.body;
+
+    if (!token) {
+      return next(new AppError('Token es requerido', 400));
+    }
+
+    const company = await Company.findOne({ slug: companySlug });
+    if (!company) {
+      return next(new AppError('Empresa no encontrada', 404));
+    }
+
+    const client = await Client.findOne({
+      validationToken: token,
+      companyId: company._id
+    });
+
+    if (!client) {
+      return next(new AppError('Enlace de validación inválido', 404));
+    }
+
+    let emailChanged = false;
+    let phoneChanged = false;
+
+    if (email && email.toLowerCase() !== (client.email || '').toLowerCase()) {
+      client.email = email;
+      emailChanged = true;
+    }
+    if (phone && phone !== client.phone) {
+      client.phone = phone;
+      phoneChanged = true;
+    }
+
+    client.isEmailVerified = true;
+    client.isPhoneVerified = true;
+
+    // Reset validation token so it's a one-time link, but keep it so they can't reuse
+    client.validationToken = undefined; 
+    await client.save();
+
+    res.json({
+      success: true,
+      message: 'Tus datos de contacto han sido validados e ingresados exitosamente.',
+      data: {
+        email: client.email,
+        phone: client.phone,
+        isEmailVerified: client.isEmailVerified,
+        isPhoneVerified: client.isPhoneVerified
       }
     });
   } catch (error) {

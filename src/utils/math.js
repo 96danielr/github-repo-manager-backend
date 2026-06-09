@@ -1,6 +1,6 @@
 export const roundMoney = (value) => {
   if (value === undefined || value === null || isNaN(value)) return 0;
-  return Math.round(Number(value) / 100) * 100;
+  return Math.round(Number(value) / 1000) * 1000;
 };
 
 export const parseNumStringWithLocalization = (val) => {

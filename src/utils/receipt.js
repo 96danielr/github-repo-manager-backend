@@ -135,6 +135,7 @@ export const generateReceiptStream = async (data, res) => {
     companyAddress,
     companyPhone,
     lotInfo,
+    projectName,
     paymentBank,
     observations,
     paymentCapture,
@@ -327,7 +328,8 @@ export const generateReceiptStream = async (data, res) => {
 
   // Rows Content
   doc.fontSize(8.5).font('Helvetica').fillColor('#212121');
-  doc.text(isSeparation ? `Abono de Separación - Lote: ${lotInfo}` : `Abono Cuota #${quotaNumber} - Lote: ${lotInfo}`, 40, tableY + 27);
+  const projectConceptPrefix = projectName ? `Proyecto: ${projectName} - ` : '';
+  doc.text(isSeparation ? `Abono de Separación - ${projectConceptPrefix}Lote: ${lotInfo}` : `Abono Cuota #${quotaNumber} - ${projectConceptPrefix}Lote: ${lotInfo}`, 40, tableY + 27, { width: 432, height: 16, ellipsis: true });
   doc.text(
     `$ ${amount.toLocaleString('es-CO', { minimumFractionDigits: 2 })}`,
     477, tableY + 27,
@@ -369,11 +371,13 @@ export const generateReceiptStream = async (data, res) => {
   doc.restore();
 
   doc.fontSize(8.5).font('Helvetica-Bold').fillColor('#757575').text('INFORMACIÓN GENERAL', 40, bottomY + 6);
-  doc.fontSize(8.5).font('Helvetica').fillColor('#757575').text('Cliente', 40, bottomY + 22);
-  doc.text('Contacto', 40, bottomY + 38);
+  doc.fontSize(8).font('Helvetica').fillColor('#757575').text('Cliente', 40, bottomY + 18);
+  doc.text('Proyecto', 40, bottomY + 30);
+  doc.text('Contacto', 40, bottomY + 42);
   
-  doc.font('Helvetica-Bold').fillColor('#2e7d32').text((clientName || '').toUpperCase(), 100, bottomY + 22, { width: 185, ellipsis: true });
-  doc.font('Helvetica-Bold').fillColor('#212121').text(clientPhone || '-', 100, bottomY + 38);
+  doc.font('Helvetica-Bold').fontSize(8).fillColor('#2e7d32').text((clientName || '').toUpperCase(), 100, bottomY + 18, { width: 185, ellipsis: true });
+  doc.font('Helvetica-Bold').fontSize(8).fillColor('#2c3e50').text((projectName || 'N/A').toUpperCase(), 100, bottomY + 30, { width: 185, ellipsis: true });
+  doc.font('Helvetica-Bold').fontSize(8).fillColor('#212121').text(clientPhone || '-', 100, bottomY + 42);
 
   // Box 2: ANEXOS
   doc.save();
