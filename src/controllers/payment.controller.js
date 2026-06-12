@@ -89,7 +89,7 @@ export const getPayments = async (req, res, next) => {
     const skip = (pageNum - 1) * limitNum;
 
     // Build dynamic sort
-    let sortObj = { status: -1, fechaPago: -1, createdAt: -1 }; // Default: Pending approval first
+    let sortObj = { fechaPago: -1, status: -1, createdAt: -1 }; // Default: sorted by payment date
     if (sortBy) {
       const sortField = {
         'amount': 'amount',
