@@ -428,6 +428,28 @@ export const rejectPayment = async (req, res, next) => {
       return next(new AppError('Intento de pago no encontrado', 404));
     }
 
+    // Rollback quota updates for all associated quotas
+    for (const qEntry of attempt.quotas) {
+      const qDoc = await Quota.findOne({ _id: qEntry.quotaId, tenantId, companyId });
+      if (qDoc) {
+        qDoc.amountPaid = Math.max(0, (qDoc.amountPaid || 0) - qEntry.amount);
+        
+        if (qDoc.amountPaid < qDoc.value) {
+          const now = new Date();
+          qDoc.status = qDoc.dueDate < now ? 'mora' : 'pendiente';
+        }
+        
+        if (qDoc.amountPaid === 0) {
+          qDoc.paymentBank = undefined;
+          qDoc.paymentMethod = undefined;
+          qDoc.paymentObservations = undefined;
+          qDoc.paymentDate = undefined;
+          qDoc.paymentCapture = undefined;
+        }
+        await qDoc.save();
+      }
+    }
+
     attempt.status = 'RECHAZADO';
     attempt.rejectedReason = rejectedReason || observacion || 'Rechazado por el administrador';
     attempt.rejectedBy = userId;
@@ -443,12 +465,13 @@ export const rejectPayment = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: 'Intento de pago rechazado exitosamente',
+      message: 'Intento de pago rechazado y cuotas revertidas exitosamente',
     });
   } catch (error) {
     next(error);
   }
 };
+
 /**
  * Admin: Manually register a payment for a quota (Auto-approved)
  */
@@ -506,6 +529,7 @@ export const registerManualPayment = async (req, res, next) => {
     const quotaPendingValue = quota.value - (quota.amountPaid || 0);
 
     const paidQuotasAccumulator = [];
+    const quotasToRecord = [];
 
     console.log('[LOG][REGISTER_MANUAL_PAYMENT] Montos a procesar:', {
       paidAmount,
@@ -515,6 +539,7 @@ export const registerManualPayment = async (req, res, next) => {
 
     if (paidAmount > quotaPendingValue) {
       let excess = paidAmount - quotaPendingValue;
+      quotasToRecord.push({ quotaId: quota._id, amount: quotaPendingValue });
       console.log('[LOG][REGISTER_MANUAL_PAYMENT] Iniciando cascada de pago por exceso. Excedente inicial:', excess);
       
       // Fully pay the selected quota
@@ -573,6 +598,7 @@ export const registerManualPayment = async (req, res, next) => {
           }
           await pq.save();
           paidQuotasAccumulator.push(pq._id);
+          quotasToRecord.push({ quotaId: pq._id, amount: pqPendingValue });
           console.log(`[LOG][REGISTER_MANUAL_PAYMENT] Cuota #${pq.number} PAGADA totalmente con excedente.`);
 
           excess -= pqPendingValue;
@@ -587,6 +613,7 @@ export const registerManualPayment = async (req, res, next) => {
             pq.paymentCapture = captureUrl;
           }
           await pq.save();
+          quotasToRecord.push({ quotaId: pq._id, amount: excess });
           console.log(`[LOG][REGISTER_MANUAL_PAYMENT] Cuota #${pq.number} ABONADA parcialmente con saldo restante de ${excess}.`);
 
           excess = 0;
@@ -594,6 +621,7 @@ export const registerManualPayment = async (req, res, next) => {
       }
     } else {
       console.log('[LOG][REGISTER_MANUAL_PAYMENT] El pago es igual o menor al saldo pendiente de la cuota. Sin cascada.');
+      quotasToRecord.push({ quotaId: quota._id, amount: paidAmount });
       quota.amountPaid = (quota.amountPaid || 0) + paidAmount;
       if (quota.amountPaid >= quota.value) {
         quota.status = 'pagado';
@@ -608,6 +636,29 @@ export const registerManualPayment = async (req, res, next) => {
       await quota.save();
       paidQuotasAccumulator.push(quota._id);
       console.log('[LOG][REGISTER_MANUAL_PAYMENT] Cuota guardada exitosamente.');
+    }
+
+    // Immediately create the PaymentAttempt as approved
+    try {
+      const contract = await Contract.findById(quota.contract);
+      await PaymentAttempt.create({
+        tenantId,
+        companyId,
+        contractId: contract._id,
+        clientId: contract.client,
+        quotas: quotasToRecord,
+        amount: paidAmount,
+        banco: bank || 'Efectivo',
+        paymentMethod: paymentMethod || 'Efectivo',
+        fechaPago: finalPaymentDate,
+        comprobante: captureUrl || undefined,
+        observations: observations,
+        status: 'APROBADO',
+        approvedBy: req.user.userId,
+        approvedAt: new Date()
+      });
+    } catch (attemptError) {
+      console.error('[LOG][REGISTER_MANUAL_PAYMENT] Error creating PaymentAttempt:', attemptError);
     }
 
     try {

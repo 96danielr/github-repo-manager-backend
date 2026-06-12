@@ -197,9 +197,13 @@ export const getAdvancedReports = async (req, res, next) => {
   try {
     const { tenantId, companyId } = req.user;
     const now = new Date();
+    const { startDate, endDate } = req.query;
+
+    let startInterval = startDate ? new Date(startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
+    let endInterval = endDate ? new Date(endDate) : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
 
     // ==========================================
-    // 1. CARTERA POR EDADES (Aging Portfolio: 30, 60, 90 days)
+    // 1. CARTERA POR EDADES & AL DIA
     // ==========================================
     const unpaidQuotas = await Quota.find({
       tenantId,
@@ -214,11 +218,13 @@ export const getAdvancedReports = async (req, res, next) => {
       bucketOver90: { amount: 0, count: 0 } // > 90 days
     };
 
+    const carteraAlDia = { amount: 0, count: 0 };
+
     unpaidQuotas.forEach(q => {
+      const remainingVal = q.value - (q.amountPaid || 0);
       if (q.dueDate < now) {
         const diffTime = Math.abs(now - q.dueDate);
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        const remainingVal = q.value - (q.amountPaid || 0);
 
         if (diffDays <= 30) {
           aging.bucket30.amount += remainingVal;
@@ -233,8 +239,47 @@ export const getAdvancedReports = async (req, res, next) => {
           aging.bucketOver90.amount += remainingVal;
           aging.bucketOver90.count += 1;
         }
+      } else {
+        carteraAlDia.amount += remainingVal;
+        carteraAlDia.count += 1;
       }
     });
+
+    // ==========================================
+    // 1B. RECAUDOS (All time, Today, Interval)
+    // ==========================================
+    const paidQuotasAllTime = await Quota.find({
+      tenantId,
+      companyId,
+      status: 'pagado'
+    });
+    const totalCollected = paidQuotasAllTime.reduce((sum, q) => sum + (q.amountPaid || q.value), 0);
+
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    const paidQuotasToday = await Quota.find({
+      tenantId,
+      companyId,
+      status: 'pagado',
+      paymentDate: { $gte: startOfToday, $lte: endOfToday }
+    });
+    const collectedToday = paidQuotasToday.reduce((sum, q) => sum + (q.amountPaid || q.value), 0);
+
+    const paidQuotasInterval = await Quota.find({
+      tenantId,
+      companyId,
+      status: 'pagado',
+      paymentDate: { $gte: startInterval, $lte: endInterval }
+    });
+    const collectedInterval = paidQuotasInterval.reduce((sum, q) => sum + (q.amountPaid || q.value), 0);
+
+    const recaudos = {
+      totalCollected,
+      collectedToday,
+      collectedInterval,
+      startInterval,
+      endInterval
+    };
 
     // ==========================================
     // 2. ESPERADO VS RECAUDADO POR MES (Expected vs. Real Revenue)
@@ -391,6 +436,8 @@ export const getAdvancedReports = async (req, res, next) => {
       success: true,
       data: {
         aging,
+        carteraAlDia,
+        recaudos,
         comparison,
         delinquentClients,
         bestClients

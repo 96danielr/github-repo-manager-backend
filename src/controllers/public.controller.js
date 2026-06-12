@@ -29,8 +29,8 @@ export const getReceiptPDF = async (req, res, next) => {
       return next(new AppError('Cuota no encontrada', 404));
     }
 
-    if (quota.status !== 'pagado') {
-      return next(new AppError('El recibo solo está disponible para cuotas pagadas', 400));
+    if (quota.status !== 'pagado' && (!quota.amountPaid || quota.amountPaid === 0)) {
+      return next(new AppError('El recibo solo está disponible para cuotas con pagos o abonos registrados', 400));
     }
 
     const company = await Company.findById(quota.companyId);
