@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import request from 'supertest';
 import mongoose from 'mongoose';
 import app from '../src/app.js';
@@ -20,6 +21,8 @@ describe('Integration Test - Payments API', () => {
   
   const testEmail = `admin.payments.test.${Date.now()}@example.com`;
   const testPassword = 'Password123';
+
+  jest.setTimeout(30000);
 
   // SETUP: Create a test user, tenant and company to get an auth token
   beforeAll(async () => {

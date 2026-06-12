@@ -42,13 +42,19 @@ const buildTokenPayload = async (account, membership) => {
     }));
   }
 
-  return {
+  const payload = {
     accountId: account._id.toString(),
     userId: membership._id.toString(),
     tenantId,
     role: membership.role,
     companies,
   };
+
+  if (membership.clientId) {
+    payload.clientId = membership.clientId.toString();
+  }
+
+  return payload;
 };
 
 /**
@@ -149,11 +155,46 @@ export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    // Find account with password
-    const account = await UserAccount.findOne({ email }).select('+passwordHash');
+    // Find account with password (supporting email or document number)
+    const query = email.includes('@')
+      ? { email: email.toLowerCase() }
+      : { documentoIdentidad: email.trim() };
+
+    let account = await UserAccount.findOne(query).select('+passwordHash');
+
+    // On-the-fly auto-onboarding for clients loaded via Excel/massive upload
+    if (!account && !email.includes('@')) {
+      const Client = (await import('../models/Client.js')).default;
+      const client = await Client.findOne({ idNumber: email.trim() });
+      
+      if (client) {
+        const defaultPassword = client.idNumber;
+        const emailValue = client.email || `${client.idNumber}@portal.com`;
+
+        account = await UserAccount.create({
+          email: emailValue,
+          passwordHash: defaultPassword,
+          fullName: client.name,
+          documentoIdentidad: client.idNumber,
+        });
+
+        const UserModel = (await import('../models/User.js')).default;
+        await UserModel.create({
+          accountId: account._id,
+          tenantId: client.tenantId,
+          role: 'cliente',
+          clientId: client._id,
+        });
+
+        console.log(`[AUTH_LOGIN] On-the-fly UserAccount & User created for client: ${client.name} (${client.idNumber})`);
+        
+        // Re-query account to include passwordHash
+        account = await UserAccount.findById(account._id).select('+passwordHash');
+      }
+    }
 
     if (!account || !(await account.comparePassword(password))) {
-      return next(new AppError('Invalid email or password', 401));
+      return next(new AppError('Usuario o contraseña incorrectos', 401));
     }
 
     if (account.status !== 'active') {
@@ -178,6 +219,44 @@ export const login = async (req, res, next) => {
     // Update last login
     account.lastLogin = new Date();
     await account.save({ validateBeforeSave: false });
+
+    // Check if the user is a client (requires OTP validation)
+    const clientMembership = activeMemberships.find((m) => m.role === 'cliente');
+    if (clientMembership) {
+      const Client = (await import('../models/Client.js')).default;
+      const client = await Client.findById(clientMembership.clientId);
+      if (!client || !client.phone) {
+        return next(new AppError('No se encontró un número de celular registrado para enviar el código de verificación.', 400));
+      }
+
+      // Generate and send OTP
+      const { sendOTPCode } = await import('../utils/otpHelper.js');
+      const Company = (await import('../models/Company.js')).default;
+      const company = await Company.findById(client.companyId);
+      const companyName = company?.name || 'Inmobiliaria';
+
+      const otpToken = await sendOTPCode(
+        clientMembership.tenantId._id,
+        client.companyId,
+        client._id,
+        'phone', // Satisfies VerificationToken schema validation enum
+        client.phone,
+        companyName
+      );
+
+      return res.json({
+        success: true,
+        data: {
+          requiresOtp: true,
+          clientId: client._id,
+          phone: client.phone,
+          accountId: account._id,
+          userId: clientMembership._id,
+          tenantId: clientMembership.tenantId._id,
+          otpToken,
+        },
+      });
+    }
 
     if (activeMemberships.length === 1) {
       // Single membership — generate JWT directly
@@ -211,6 +290,68 @@ export const login = async (req, res, next) => {
           role: m.role,
           plan: m.tenantId.plan,
         })),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /auth/verify-client-otp
+ */
+export const verifyClientOtp = async (req, res, next) => {
+  try {
+    const { accountId, userId, tenantId, clientId, otpCode, otpToken } = req.body;
+
+    if (!accountId || !userId || !tenantId || !clientId || !otpCode) {
+      return next(new AppError('Todos los campos son requeridos para la verificación', 400));
+    }
+
+    // Verify OTP code
+    const VerificationToken = (await import('../models/VerificationToken.js')).default;
+    const vToken = await VerificationToken.findOne({
+      token: otpToken,
+      code: otpCode,
+      isUsed: false,
+      expiresAt: { $gt: new Date() },
+    });
+
+    if (!vToken) {
+      return next(new AppError('Código de verificación incorrecto o expirado', 400));
+    }
+
+    // Mark as used
+    vToken.isUsed = true; // Matches VerificationToken schema field
+    await vToken.save();
+
+    const account = await UserAccount.findById(accountId);
+    if (!account || account.status !== 'active') {
+      return next(new AppError('Cuenta no encontrada o inactiva', 401));
+    }
+
+    const membership = await User.findOne({
+      _id: userId,
+      accountId: account._id,
+      tenantId,
+      status: 'active',
+    }).populate('tenantId', 'name plan status activeModules subscriptionStart subscriptionEnd');
+
+    if (!membership) {
+      return next(new AppError('Membresía no encontrada o inactiva', 401));
+    }
+
+    const payload = await buildTokenPayload(account, membership);
+    const accessToken = generateAccessToken(payload);
+    const refreshToken = generateRefreshToken(account._id);
+
+    setTokenCookies(res, accessToken, refreshToken);
+
+    return res.json({
+      success: true,
+      data: {
+        user: buildUserResponse(account, membership),
+        accessToken,
       },
     });
   } catch (error) {

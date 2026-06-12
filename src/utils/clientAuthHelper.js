@@ -40,24 +40,35 @@ export const registerPortalUserForClient = async (client, tenantId, companyId, p
     let account = null;
     let generatedPin = null;
 
-    if (client.email) {
+    if (client.idNumber) {
+      account = await UserAccount.findOne({ documentoIdentidad: client.idNumber });
+    }
+    if (!account && client.email) {
       account = await UserAccount.findOne({ email: client.email });
     }
 
     if (!account) {
-      // Generate random 6-digit PIN as temporary password
-      generatedPin = Math.floor(100000 + Math.random() * 900000).toString();
-      
-      if (client.email) {
-        account = await UserAccount.create({
-          email: client.email,
-          passwordHash: passwordInput || generatedPin,
-          fullName: client.name,
-        });
-        console.log(`[CLIENT_AUTH_HELPER] Created UserAccount for: ${client.email} with PIN: ${generatedPin}`);
+      // Use document (idNumber) as default password if no passwordInput is provided, otherwise generate random PIN
+      const defaultPassword = passwordInput || client.idNumber || Math.floor(100000 + Math.random() * 900000).toString();
+      if (!passwordInput && !client.idNumber) {
+        generatedPin = defaultPassword;
       }
+      
+      const emailValue = client.email || `${client.idNumber || Math.floor(100000 + Math.random() * 900000)}@portal.com`;
+
+      account = await UserAccount.create({
+        email: emailValue,
+        passwordHash: defaultPassword,
+        fullName: client.name,
+        documentoIdentidad: client.idNumber,
+      });
+      console.log(`[CLIENT_AUTH_HELPER] Created UserAccount for: ${emailValue} with default password/document: ${client.idNumber || generatedPin}`);
     } else {
-      console.log(`[CLIENT_AUTH_HELPER] Found existing UserAccount for: ${client.email}`);
+      console.log(`[CLIENT_AUTH_HELPER] Found existing UserAccount for: ${account.email}`);
+      if (!account.documentoIdentidad && client.idNumber) {
+        account.documentoIdentidad = client.idNumber;
+        await account.save({ validateBeforeSave: false });
+      }
     }
 
     // 4. Create User membership

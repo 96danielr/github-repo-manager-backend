@@ -6,6 +6,7 @@ import {
   getMe,
   selectTenant,
   refreshTokenHandler,
+  verifyClientOtp,
 } from '../controllers/auth.controller.js';
 import { protect } from '../middleware/auth.js';
 import validate from '../middleware/validate.js';
@@ -20,6 +21,7 @@ const router = Router();
 router.post('/register', validate(registerValidation), register);
 router.post('/login', validate(loginValidation), login);
 router.post('/admin/login', validate(loginValidation), login); // alias for frontend compatibility
+router.post('/verify-client-otp', verifyClientOtp);
 router.post('/select-tenant', selectTenant);
 router.post('/refresh', refreshTokenHandler);
 

@@ -1,10 +1,75 @@
+import mongoose from 'mongoose';
 import Quota from '../models/Quota.js';
 import Contract from '../models/Contract.js';
 import Client from '../models/Client.js';
 import Company from '../models/Company.js';
+import Lot from '../models/Lot.js';
+import PaymentAttempt from '../models/PaymentAttempt.js';
 import AppError from '../utils/AppError.js';
 import { sendSMS, sendEmail, sendWhatsApp } from '../utils/notifications.js';
 import { logAudit } from '../utils/auditLogger.js';
+
+const migrateLegacyPayments = async (tenantId, companyId) => {
+  try {
+    const legacyQuotas = await Quota.aggregate([
+      {
+        $match: {
+          tenantId: new mongoose.Types.ObjectId(tenantId),
+          companyId: new mongoose.Types.ObjectId(companyId),
+          $or: [
+            { paymentCapture: { $ne: null } },
+            { paymentBank: { $ne: null } },
+            { paymentDate: { $ne: null } },
+            { amountPaid: { $gt: 0 } }
+          ]
+        }
+      },
+      {
+        $lookup: {
+          from: 'paymentattempts',
+          localField: '_id',
+          foreignField: 'quotas.quotaId',
+          as: 'attempts'
+        }
+      },
+      {
+        $match: {
+          attempts: { $size: 0 }
+        }
+      },
+      {
+        $limit: 12 // Process and migrate in small batches of 12
+      }
+    ]);
+
+    for (const quota of legacyQuotas) {
+      const contract = await Contract.findById(quota.contract);
+      if (!contract) continue;
+
+      await PaymentAttempt.create({
+        tenantId: quota.tenantId,
+        companyId: quota.companyId,
+        contractId: contract._id,
+        clientId: contract.client,
+        quotas: [{
+          quotaId: quota._id,
+          amount: quota.amountPaid || quota.value || 0
+        }],
+        amount: quota.amountPaid || quota.value || 0,
+        banco: quota.paymentBank || 'Desconocido',
+        paymentMethod: quota.paymentMethod || 'Transferencia bancaria',
+        fechaPago: quota.paymentDate || quota.updatedAt || new Date(),
+        comprobante: quota.paymentCapture,
+        observations: quota.paymentObservations,
+        status: quota.status === 'pagado' ? 'APROBADO' : 'PENDIENTE',
+        createdAt: quota.paymentDate || quota.createdAt,
+        updatedAt: quota.updatedAt
+      });
+    }
+  } catch (err) {
+    console.error('[LOG][MIGRATE_LEGACY_PAYMENTS] Error during auto-migration:', err);
+  }
+};
 
 /**
  * Get all quotas (payments) for a given company with server-side pagination and filtering.
@@ -13,19 +78,23 @@ import { logAudit } from '../utils/auditLogger.js';
 export const getPayments = async (req, res, next) => {
   try {
     const { tenantId, companyId, role, userId } = req.user;
-    const { page = 1, limit = 20, search, status, sortBy, order } = req.query;
+    
+    // Auto-migrate legacy payments to PaymentAttempt format (chunked migration)
+    await migrateLegacyPayments(tenantId, companyId);
+
+    const { page = 1, limit = 12, search, status, sortBy, order } = req.query;
 
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
 
     // Build dynamic sort
-    let sortObj = { status: -1, paymentDate: -1, dueDate: 1 }; // Default: Pending approval first
+    let sortObj = { status: -1, fechaPago: -1, createdAt: -1 }; // Default: Pending approval first
     if (sortBy) {
       const sortField = {
-        'amount': 'value',
-        'cuotaNumber': 'number',
-        'fechaPago': 'dueDate',
+        'amount': 'amount',
+        'cuotaNumber': 'createdAt', // Default sorting for populated/calculated values to createdAt
+        'fechaPago': 'fechaPago',
         'status': 'status',
         'createdAt': 'createdAt',
       }[sortBy] || sortBy;
@@ -37,31 +106,22 @@ export const getPayments = async (req, res, next) => {
     let query = { 
       tenantId, 
       companyId,
-      $or: [
-        { status: 'pagado' },
-        { paymentDate: { $ne: null } },
-        { paymentCapture: { $ne: null } },
-        { paymentBank: { $ne: null } },
-      ],
     };
 
-    // If seller role, restrict to their own sales' quotas
+    // If seller role, restrict to their own sales' attempts
     if (role === 'vendedor') {
       const sellerContracts = await Contract.find({ tenantId, companyId, sellerId: userId }).select('_id');
-      query.contract = { $in: sellerContracts.map((c) => c._id) };
+      query.contractId = { $in: sellerContracts.map((c) => c._id) };
     }
 
-    // Map frontend status names to Quota status values
+    // Map frontend status names to PaymentAttempt status values
     if (status && status !== 'ALL') {
       const statusMap = {
-        'PENDIENTE': 'pendiente',
-        'PAGADO': 'pagado',
-        'MORA': 'mora',
+        'PENDIENTE': 'PENDIENTE',
+        'PAGADO': 'APROBADO',
+        'RECHAZADO': 'RECHAZADO',
       };
-      const requestedStatus = statusMap[status] || status.toLowerCase();
-      
-      // If filtering by status, we still want to ensure it's a "payment" (has data or is paid)
-      // unless specifically searching for MORA or something.
+      const requestedStatus = statusMap[status] || status.toUpperCase();
       query.status = requestedStatus;
     }
 
@@ -76,67 +136,56 @@ export const getPayments = async (req, res, next) => {
         ],
       }).select('_id');
 
-      const matchingContracts = await Contract.find({
-        tenantId,
-        companyId,
-        client: { $in: matchingClients.map((c) => c._id) },
-      }).select('_id');
-
-      query.contract = { $in: matchingContracts.map((c) => c._id) };
+      query.clientId = { $in: matchingClients.map((c) => c._id) };
     }
 
-    const total = await Quota.countDocuments(query);
-    const quotas = await Quota.find(query)
+    const total = await PaymentAttempt.countDocuments(query);
+    const attempts = await PaymentAttempt.find(query)
       .populate({
-        path: 'contract',
-        populate: [
-          { path: 'client', select: 'name idNumber phone' },
-          { path: 'lot', select: 'lotNumber stage nomenclature area manzana' },
-        ],
+        path: 'contractId',
+        populate: {
+          path: 'lot',
+          select: 'lotNumber stage nomenclature area manzana',
+        },
       })
+      .populate('clientId', 'name idNumber phone')
+      .populate('quotas.quotaId', 'number type receiptUrl')
       .sort(sortObj)
       .skip(skip)
       .limit(limitNum)
       .lean();
 
     // Format for frontend expectations
-    const formattedPayments = quotas.map((q) => {
-      const qObj = q;
-
-      // Map Quota status to frontend display status
-      const statusMap = {
-        'pendiente': 'PENDIENTE',
-        'pagado': 'PAGADO',
-        'mora': 'MORA',
-      };
+    const formattedPayments = attempts.map((qObj) => {
+      const firstQuota = qObj.quotas?.[0]?.quotaId;
 
       return {
         id: qObj._id,
-        cuotaNumber: qObj.number || 0,
-        amount: qObj.amountPaid || qObj.value || 0,
-        banco: qObj.paymentBank || 'N/A',
-        fechaPago: qObj.paymentDate || qObj.dueDate,
-        comprobante: qObj.paymentCapture || null,
-        status: statusMap[qObj.status] || qObj.status?.toUpperCase() || 'PENDIENTE',
-        type: qObj.type,
+        cuotaNumber: firstQuota?.number || 0,
+        amount: qObj.amount || 0,
+        banco: qObj.banco || 'N/A',
+        fechaPago: qObj.fechaPago || qObj.createdAt,
+        comprobante: qObj.comprobante || null,
+        status: qObj.status === 'APROBADO' ? 'PAGADO' : (qObj.status === 'RECHAZADO' ? 'RECHAZADO' : 'PENDIENTE'),
+        type: firstQuota?.type || 'normal',
         contract: {
           client: {
-            fullName: qObj.contract?.client?.name || 'Sin nombre',
-            cedula: qObj.contract?.client?.idNumber || '',
-            phone: qObj.contract?.client?.phone || '',
+            fullName: qObj.clientId?.name || 'Sin nombre',
+            cedula: qObj.clientId?.idNumber || '',
+            phone: qObj.clientId?.phone || '',
           },
           lot: {
             project: {
-              name: qObj.contract?.lot?.stage || 'Sin proyecto',
+              name: qObj.contractId?.lot?.stage || 'Sin proyecto',
             },
-            manzana: qObj.contract?.lot?.manzana || '-',
-            nomenclatura: qObj.contract?.lot?.nomenclature || '-',
-            lotNumber: qObj.contract?.lot?.lotNumber || '-',
+            manzana: qObj.contractId?.lot?.manzana || '-',
+            nomenclatura: qObj.contractId?.lot?.nomenclature || '-',
+            lotNumber: qObj.contractId?.lot?.lotNumber || '-',
           },
         },
         createdAt: qObj.createdAt,
         updatedAt: qObj.updatedAt,
-        receiptUrl: qObj.receiptUrl || null,
+        receiptUrl: firstQuota?.receiptUrl || null,
       };
     });
 
@@ -229,104 +278,135 @@ const sendPaymentNotifications = async (req, quotaId, companyId) => {
 };
 
 /**
- * Mark a quota as "pagado" (paid).
+ * Mark a PaymentAttempt as "APROBADO" and apply its amount to the target quotas in cascade.
  */
 export const approvePayment = async (req, res, next) => {
   try {
-    const { tenantId, companyId } = req.user;
-    const { id: quotaId } = req.params;
+    const { tenantId, companyId, userId } = req.user;
+    const { id: attemptId } = req.params;
 
-    console.log('[LOG][APPROVE_PAYMENT] Solicitud de aprobación recibida:', {
-      quotaId,
+    console.log('[LOG][APPROVE_PAYMENT] Solicitud de aprobación recibida para Intento de Pago:', {
+      attemptId,
       tenantId,
       companyId
     });
 
-    const quota = await Quota.findOne({ _id: quotaId, tenantId, companyId });
-    if (!quota) {
-      console.warn('[LOG][APPROVE_PAYMENT] Error: Cuota no encontrada con ID:', quotaId);
-      return next(new AppError('Cuota no encontrada', 404));
+    const attempt = await PaymentAttempt.findOne({ _id: attemptId, tenantId, companyId });
+    if (!attempt) {
+      console.warn('[LOG][APPROVE_PAYMENT] Error: Intento de pago no encontrado con ID:', attemptId);
+      return next(new AppError('Intento de pago no encontrado', 404));
     }
 
-    if (quota.status === 'pagado') {
-      console.warn('[LOG][APPROVE_PAYMENT] Advertencia: La cuota ya está en estado pagado:', quotaId);
-      return next(new AppError('Esta cuota ya fue marcada como pagada', 400));
+    if (attempt.status === 'APROBADO') {
+      console.warn('[LOG][APPROVE_PAYMENT] Advertencia: El intento de pago ya fue aprobado:', attemptId);
+      return next(new AppError('Este intento de pago ya fue aprobado', 400));
     }
 
     const paidQuotasAccumulator = [];
 
-    // Check if the reported amountPaid exceeds the remaining quota value
-    const quotaPendingValue = quota.value - (quota.amountPaid || 0);
-    const reportedAmount = quota.amountPaid || quota.value;
-
-    if (reportedAmount > quotaPendingValue) {
-      let excess = reportedAmount - quotaPendingValue;
-      console.log('[LOG][APPROVE_PAYMENT] Iniciando cascada de aprobación por exceso. Excedente:', excess);
-
-      quota.status = 'pagado';
-      quota.amountPaid = quota.value;
-      await quota.save();
-      paidQuotasAccumulator.push(quota._id);
-
-      const queryFilter = {
-        contract: quota.contract,
-        tenantId,
-        companyId,
-        _id: { $ne: quotaId },
-        status: { $in: ['pendiente', 'mora'] }
-      };
-
-      const pendingQuotas = await Quota.find(queryFilter).sort({ type: 1, number: 1 });
-      for (const pq of pendingQuotas) {
-        if (excess <= 0) break;
-
-        const pqPendingValue = pq.value - (pq.amountPaid || 0);
-        if (excess >= pqPendingValue) {
-          pq.status = 'pagado';
-          pq.amountPaid = pq.value;
-          pq.paymentBank = quota.paymentBank;
-          pq.paymentMethod = quota.paymentMethod;
-          pq.paymentObservations = `${quota.paymentObservations || ''} (Aprobación excedente cascada de cuota #${quota.number})`;
-          pq.paymentDate = quota.paymentDate || new Date();
-          pq.paymentCapture = quota.paymentCapture;
-          await pq.save();
-          paidQuotasAccumulator.push(pq._id);
-          excess -= pqPendingValue;
-        } else {
-          pq.amountPaid = (pq.amountPaid || 0) + excess;
-          pq.paymentBank = quota.paymentBank;
-          pq.paymentMethod = quota.paymentMethod;
-          pq.paymentObservations = `${quota.paymentObservations || ''} (Aprobación abono excedente cascada de cuota #${quota.number})`;
-          pq.paymentDate = quota.paymentDate || new Date();
-          pq.paymentCapture = quota.paymentCapture;
-          await pq.save();
-          // We don't mark as fully paid, but save it and stop cascade
-          excess = 0;
-        }
+    // Process each target quota in the attempt
+    for (const qEntry of attempt.quotas) {
+      const qDoc = await Quota.findOne({ _id: qEntry.quotaId, tenantId, companyId });
+      if (!qDoc) {
+        console.warn(`[LOG][APPROVE_PAYMENT] Advertencia: Cuota ${qEntry.quotaId} no encontrada en intento de pago.`);
+        continue;
       }
-    } else {
-      quota.status = 'pagado';
-      await quota.save();
-      paidQuotasAccumulator.push(quota._id);
+
+      // Calculate pending value of this target quota
+      const qPendingValue = qDoc.value - (qDoc.amountPaid || 0);
+      const amountToApply = qEntry.amount;
+
+      if (amountToApply >= qPendingValue) {
+        // Fully pay this quota
+        qDoc.status = 'pagado';
+        qDoc.amountPaid = qDoc.value;
+        qDoc.paymentBank = attempt.banco;
+        qDoc.paymentMethod = attempt.paymentMethod;
+        qDoc.paymentObservations = attempt.observations;
+        qDoc.paymentDate = attempt.fechaPago || new Date();
+        qDoc.paymentCapture = attempt.comprobante;
+        await qDoc.save();
+        paidQuotasAccumulator.push(qDoc._id);
+
+        let excess = amountToApply - qPendingValue;
+        if (excess > 0) {
+          console.log(`[LOG][APPROVE_PAYMENT] Iniciando cascada de aprobación por exceso para cuota #${qDoc.number}. Excedente:`, excess);
+          const queryFilter = {
+            contract: qDoc.contract,
+            tenantId,
+            companyId,
+            _id: { $nin: [...paidQuotasAccumulator, qDoc._id] },
+            status: { $in: ['pendiente', 'mora'] }
+          };
+
+          const pendingQuotas = await Quota.find(queryFilter).sort({ type: 1, number: 1 });
+          for (const pq of pendingQuotas) {
+            if (excess <= 0) break;
+
+            const pqPendingValue = pq.value - (pq.amountPaid || 0);
+            if (excess >= pqPendingValue) {
+              pq.status = 'pagado';
+              pq.amountPaid = pq.value;
+              pq.paymentBank = attempt.banco;
+              pq.paymentMethod = attempt.paymentMethod;
+              pq.paymentObservations = `${attempt.observations || ''} (Aprobación excedente cascada de cuota #${qDoc.number})`;
+              pq.paymentDate = attempt.fechaPago || new Date();
+              pq.paymentCapture = attempt.comprobante;
+              await pq.save();
+              paidQuotasAccumulator.push(pq._id);
+              excess -= pqPendingValue;
+            } else {
+              pq.amountPaid = (pq.amountPaid || 0) + excess;
+              pq.paymentBank = attempt.banco;
+              pq.paymentMethod = attempt.paymentMethod;
+              pq.paymentObservations = `${attempt.observations || ''} (Aprobación abono excedente cascada de cuota #${qDoc.number})`;
+              pq.paymentDate = attempt.fechaPago || new Date();
+              pq.paymentCapture = attempt.comprobante;
+              await pq.save();
+              excess = 0;
+            }
+          }
+        }
+      } else {
+        // Partially pay this quota
+        qDoc.amountPaid = (qDoc.amountPaid || 0) + amountToApply;
+        if (qDoc.amountPaid >= qDoc.value) {
+          qDoc.status = 'pagado';
+        }
+        qDoc.paymentBank = attempt.banco;
+        qDoc.paymentMethod = attempt.paymentMethod;
+        qDoc.paymentObservations = attempt.observations;
+        qDoc.paymentDate = attempt.fechaPago || new Date();
+        qDoc.paymentCapture = attempt.comprobante;
+        await qDoc.save();
+        paidQuotasAccumulator.push(qDoc._id);
+      }
     }
 
+    // Update attempt status
+    attempt.status = 'APROBADO';
+    attempt.approvedBy = userId;
+    attempt.approvedAt = new Date();
+    await attempt.save();
+
+    // Send notifications
     try {
       const { sendConsolidatedPaymentNotifications } = await import('../utils/consolidatedNotifications.js');
       await sendConsolidatedPaymentNotifications(req, paidQuotasAccumulator, companyId);
     } catch (notificationError) {
-      console.error('[LOG][APPROVE_PAYMENT] Error sending consolidated notifications:', notificationError);
+      console.error('[LOG][APPROVE_PAYMENT] Error al enviar notificaciones consolidadas:', notificationError);
     }
 
     await logAudit(req, {
       action: 'APPROVE_PAYMENT',
       module: 'PAYMENTS',
-      targetId: quota._id,
-      details: { amount: quota.amountPaid || quota.value, cuotaNumber: quota.number, approvedCount: paidQuotasAccumulator.length }
+      targetId: attempt._id,
+      details: { amount: attempt.amount, quotasCount: attempt.quotas.length, approvedCount: paidQuotasAccumulator.length }
     });
 
     res.json({
       success: true,
-      message: 'Cuota marcada como pagada exitosamente',
+      message: 'Intento de pago aprobado y cuotas actualizadas exitosamente',
     });
   } catch (error) {
     console.error('[LOG][APPROVE_PAYMENT] Error crítico en aprobación:', error);
@@ -335,32 +415,35 @@ export const approvePayment = async (req, res, next) => {
 };
 
 /**
- * Mark a quota back as "pendiente" or "mora" (reject/revert).
+ * Mark a PaymentAttempt as "RECHAZADO" (rejected).
  */
 export const rejectPayment = async (req, res, next) => {
   try {
-    const { tenantId, companyId } = req.user;
-    const { id: quotaId } = req.params;
+    const { tenantId, companyId, userId } = req.user;
+    const { id: attemptId } = req.params;
+    const { rejectedReason, observacion } = req.body;
 
-    const quota = await Quota.findOne({ _id: quotaId, tenantId, companyId });
-    if (!quota) {
-      return next(new AppError('Cuota no encontrada', 404));
+    const attempt = await PaymentAttempt.findOne({ _id: attemptId, tenantId, companyId });
+    if (!attempt) {
+      return next(new AppError('Intento de pago no encontrado', 404));
     }
 
-    // Revert to pendiente
-    quota.status = 'pendiente';
-    await quota.save();
+    attempt.status = 'RECHAZADO';
+    attempt.rejectedReason = rejectedReason || observacion || 'Rechazado por el administrador';
+    attempt.rejectedBy = userId;
+    attempt.rejectedAt = new Date();
+    await attempt.save();
 
     await logAudit(req, {
       action: 'REJECT_PAYMENT',
       module: 'PAYMENTS',
-      targetId: quota._id,
-      details: { cuotaNumber: quota.number }
+      targetId: attempt._id,
+      details: { amount: attempt.amount, rejectedReason: attempt.rejectedReason }
     });
 
     res.json({
       success: true,
-      message: 'Cuota revertida a pendiente',
+      message: 'Intento de pago rechazado exitosamente',
     });
   } catch (error) {
     next(error);
@@ -511,8 +594,10 @@ export const registerManualPayment = async (req, res, next) => {
       }
     } else {
       console.log('[LOG][REGISTER_MANUAL_PAYMENT] El pago es igual o menor al saldo pendiente de la cuota. Sin cascada.');
-      quota.status = 'pagado';
-      quota.amountPaid = paidAmount;
+      quota.amountPaid = (quota.amountPaid || 0) + paidAmount;
+      if (quota.amountPaid >= quota.value) {
+        quota.status = 'pagado';
+      }
       quota.paymentBank = bank;
       quota.paymentMethod = paymentMethod;
       quota.paymentObservations = observations;

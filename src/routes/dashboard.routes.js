@@ -102,7 +102,7 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
     const result = stats[0] || { valorTotalCartera: 0, totalRecaudado: 0 };
     const totalPendiente = Math.max(0, result.valorTotalCartera - result.totalRecaudado);
     const porcentajeRecaudo = result.valorTotalCartera > 0 
-      ? (result.totalRecaudado / result.valorTotalCartera) * 100 
+      ? Math.round((result.totalRecaudado / result.valorTotalCartera) * 100) 
       : 0;
 
     const totalSalesCount = await Contract.countDocuments(baseMatch);
@@ -132,11 +132,13 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
           disponibles: 1,
           separados: 1,
           porcentajeVendido: {
-            $cond: [
-              { $gt: ['$total', 0] },
-              { $multiply: [{ $divide: ['$vendidos', '$total'] }, 100] },
-              0
-            ]
+            $round: [{
+              $cond: [
+                { $gt: ['$total', 0] },
+                { $multiply: [{ $divide: ['$vendidos', '$total'] }, 100] },
+                0
+              ]
+            }, 0]
           }
         }
       },
@@ -151,9 +153,9 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
         teamMembers: teamMembersCount,
         isSeller: role === 'vendedor',
         cartera: {
-          valorTotalCartera: result.valorTotalCartera,
-          totalRecaudado: result.totalRecaudado,
-          totalPendiente,
+          valorTotalCartera: Math.round(result.valorTotalCartera),
+          totalRecaudado: Math.round(result.totalRecaudado),
+          totalPendiente: Math.round(totalPendiente),
           porcentajeRecaudo,
         },
         mora: {

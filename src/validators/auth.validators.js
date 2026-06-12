@@ -27,10 +27,9 @@ export const registerValidation = z.object({
 
 export const loginValidation = z.object({
   body: z.object({
-    email: z.string({ required_error: 'Email is required' })
+    email: z.string({ required_error: 'Email o Documento es requerido' })
       .trim()
-      .email('Please provide a valid email')
-      .toLowerCase(),
+      .min(1, 'Email o Documento es requerido'),
       
     password: z.string({ required_error: 'Password is required' })
       .min(1, 'Password is required'), // Ensures it is not empty

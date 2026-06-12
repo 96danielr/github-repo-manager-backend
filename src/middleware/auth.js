@@ -42,6 +42,7 @@ export const protect = async (req, res, next) => {
       tenantId: decoded.tenantId,
       role: decoded.role,
       companies: decoded.companies || [],
+      clientId: decoded.clientId,
       fullName: account.fullName,
       email: account.email,
     };

@@ -2,6 +2,7 @@ import Client from '../models/Client.js';
 import Company from '../models/Company.js';
 import Contract from '../models/Contract.js';
 import Quota from '../models/Quota.js';
+import PaymentAttempt from '../models/PaymentAttempt.js';
 import AppError from '../utils/AppError.js';
 import { uploadToR2 } from '../utils/storage.js';
 import { generateReceiptStream } from '../utils/receipt.js';
@@ -309,20 +310,26 @@ export const reportPayment = async (req, res, next) => {
     const targetDate = paymentDate || fechaPago || new Date();
     console.log('[LOG][PUBLIC_REPORT_PAYMENT] Fecha determinada para el pago:', targetDate);
 
-    // Update quota with pending payment info
-    // Client payments are always PENDING
-    quota.status = 'pendiente'; 
-    quota.amountPaid = amount || quota.value;
-    quota.paymentBank = bank;
-    quota.paymentMethod = paymentMethod;
-    quota.paymentObservations = observations;
-    quota.paymentDate = targetDate;
-    if (captureUrl) {
-      quota.paymentCapture = captureUrl;
-    }
+    const paymentAmount = parseFloat(amount) || quota.value;
 
-    await quota.save();
-    console.log('[LOG][PUBLIC_REPORT_PAYMENT] Cuota guardada exitosamente con ID:', quota._id);
+    const attempt = await PaymentAttempt.create({
+      tenantId: quota.tenantId,
+      companyId: quota.companyId,
+      contractId: quota.contract,
+      clientId: verifiedSession.clientId,
+      quotas: [{
+        quotaId: quota._id,
+        amount: paymentAmount
+      }],
+      amount: paymentAmount,
+      banco: bank,
+      paymentMethod,
+      fechaPago: targetDate,
+      comprobante: captureUrl || undefined,
+      observations: observations || '',
+      status: 'PENDIENTE'
+    });
+    console.log('[LOG][PUBLIC_REPORT_PAYMENT] Intento de pago creado exitosamente con ID:', attempt._id);
 
     // Mark the OTP token as used
     verifiedSession.isUsed = true;
