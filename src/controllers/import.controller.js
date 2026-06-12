@@ -720,8 +720,8 @@ export const downloadTemplate = async (req, res) => {
  */
 export const downloadLotsOnlyTemplate = async (req, res) => {
   try {
-    const headers = ['Etapa', 'Manzana', 'Lote', 'Valor', 'Area'];
-    const row = ['Etapa 1', 'Mz A', 'Lote 5', 45000000, 120];
+    const headers = ['Etapa', 'Manzana', 'Lote', 'Area', 'Valor Metro Cuadrado'];
+    const row = ['Etapa 1', 'Mz A', 'Lote 5', 120, 375000];
     const templateData = [headers, row];
 
     const worksheet = XLSX.utils.aoa_to_sheet(templateData);
@@ -834,8 +834,13 @@ export const importLotsOnly = async (req, res) => {
           continue;
         }
 
-        const price = parseNumStringWithLocalization(getValMulti(row, 'Valor', 'precio', 'price', 'Valor del lote', 'Valor predio', 'Valor del lote o predio'));
+        let price = parseNumStringWithLocalization(getValMulti(row, 'Valor', 'precio', 'price', 'Valor del lote', 'Valor predio', 'Valor del lote o predio'));
         const area = parseNumStringWithLocalization(getValMulti(row, 'Area', 'área', 'area', 'Área (m²)'));
+        const pricePerM2 = parseNumStringWithLocalization(getValMulti(row, 'Valor Metro Cuadrado', 'Valor por metro cuadrado', 'Valor M2', 'pricePerM2', 'Valor metro cuadrado'));
+
+        if (area && pricePerM2) {
+          price = area * pricePerM2;
+        }
 
         // Generate nomenclature and reference
         const nomenclature = manzana ? `Mz ${manzana} Lote ${lotNumber}` : `Lote ${lotNumber}`;
