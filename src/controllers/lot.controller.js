@@ -104,10 +104,10 @@ export const getLots = async (req, res, next) => {
       if (maxArea) query.area.$lte = parseFloat(maxArea);
     }
 
-    // If seller role, show:
+    // If seller/executive role, show:
     // 1. All available lots (to be sold)
     // 2. Lots sold by THEM
-    if (role === 'vendedor') {
+    if (role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent') {
       query.$or = [
         { status: 'disponible' },
         { status: 'apartado' },
@@ -394,7 +394,8 @@ export const sellLot = async (req, res, next) => {
       paymentDay,
     } = req.body;
 
-    const effectiveSellerId = sellerId || (role === 'vendedor' ? userId : null);
+    const isSellerRole = ['vendedor', 'ejecutivo_comercial', 'agent'].includes(role);
+    const effectiveSellerId = sellerId || (isSellerRole ? userId : null);
 
     const lot = await Lot.findById(id);
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });

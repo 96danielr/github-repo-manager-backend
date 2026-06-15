@@ -108,8 +108,8 @@ export const getPayments = async (req, res, next) => {
       companyId,
     };
 
-    // If seller role, restrict to their own sales' attempts
-    if (role === 'vendedor') {
+    // If seller/executive role, restrict to their own sales' attempts
+    if (role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent') {
       const sellerContracts = await Contract.find({ tenantId, companyId, sellerId: userId }).select('_id');
       query.contractId = { $in: sellerContracts.map((c) => c._id) };
     }
@@ -480,7 +480,8 @@ export const registerManualPayment = async (req, res, next) => {
     const { tenantId, companyId, role } = req.user;
     const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod } = req.body;
 
-    if ((bank === 'Cruce de cuentas' || paymentMethod === 'Cruce de cuentas') && role !== 'admin') {
+    const isAdmin = ['superadmin', 'tenant_admin', 'company_admin', 'administrador'].includes(role);
+    if ((bank === 'Cruce de cuentas' || paymentMethod === 'Cruce de cuentas') && !isAdmin) {
       return next(new AppError('No tienes permiso para registrar pagos por cruce de cuentas', 403));
     }
     const file = req.file;

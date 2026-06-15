@@ -19,7 +19,7 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
     const { tenantId, companyId, role, userId } = req.user;
 
     const baseMatch = { tenantId, companyId };
-    if (role === 'vendedor') {
+    if (role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent') {
       baseMatch.sellerId = userId;
     }
 
@@ -151,7 +151,7 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
         totalClients: totalClientsCount,
         totalSales: totalSalesCount,
         teamMembers: teamMembersCount,
-        isSeller: role === 'vendedor',
+        isSeller: role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent',
         cartera: {
           valorTotalCartera: Math.round(result.valorTotalCartera),
           totalRecaudado: Math.round(result.totalRecaudado),

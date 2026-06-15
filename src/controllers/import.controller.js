@@ -124,6 +124,7 @@ export const importExcel = async (req, res) => {
 
         const nomenclature = getValMulti(row, 'NOMENCLATURA', 'Nomenclatura')?.toString() || undefined;
         const reference = getValMulti(row, 'REFERENCIA', 'Referencia')?.toString().trim() || undefined;
+        const manzana = getValMulti(row, 'MANZANA', 'Manzana', 'Block', 'block', 'Manzana (Block)')?.toString().trim() || undefined;
         
         // Validation: If no reference or nomenclature, skip the row (per instructions)
         if (!reference && !nomenclature) {
@@ -152,6 +153,7 @@ export const importExcel = async (req, res) => {
         let lot = lotMap.get(lotKey);
         const lotData = {
           stage,
+          manzana,
           nomenclature,
           lotNumber,
           reference,

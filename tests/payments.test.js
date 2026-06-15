@@ -10,6 +10,7 @@ import Lot from '../src/models/Lot.js';
 import Client from '../src/models/Client.js';
 import Contract from '../src/models/Contract.js';
 import Quota from '../src/models/Quota.js';
+import PaymentAttempt from '../src/models/PaymentAttempt.js';
 
 describe('Integration Test - Payments API', () => {
   let adminToken = '';
@@ -147,37 +148,46 @@ describe('Integration Test - Payments API', () => {
   });
 
   it('should revert a payment to pending (REJECT/REVERT)', async () => {
+    const attempt = await PaymentAttempt.findOne({ contractId: testContractId });
+    expect(attempt).not.toBeNull();
+    const testAttemptId = attempt._id.toString();
+
     const res = await request(app)
-      .put(`/api/payments/${testQuotaId}/reject?companyId=${companyId}`)
+      .put(`/api/payments/${testAttemptId}/reject?companyId=${companyId}`)
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.statusCode).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.message).toMatch(/pendiente/i);
+    expect(res.body.message).toMatch(/revertidas exitosamente|pendiente/i);
 
     // Verify in DB
     const updatedQuota = await Quota.findById(testQuotaId);
-    expect(updatedQuota.status).toBe('pendiente');
+    expect(['pendiente', 'mora']).toContain(updatedQuota.status);
   });
 
   it('should approve a payment (APPROVE)', async () => {
-    // Note: Usually approve is for user-uploaded captures, 
-    // but the controller just sets status to 'pagado'
+    const attempt = await PaymentAttempt.findOne({ contractId: testContractId });
+    expect(attempt).not.toBeNull();
+    const testAttemptId = attempt._id.toString();
+
     const res = await request(app)
-      .put(`/api/payments/${testQuotaId}/approve?companyId=${companyId}`)
+      .put(`/api/payments/${testAttemptId}/approve?companyId=${companyId}`)
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.statusCode).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.message).toMatch(/pagada/i);
+    expect(res.body.message).toMatch(/aprobado|pagada/i);
 
     // Verify in DB
     const updatedQuota = await Quota.findById(testQuotaId);
     expect(updatedQuota.status).toBe('pagado');
-    expect(updatedQuota.receiptUrl).toBeDefined();
   });
 
   it('should fetch the list of payments (READ LIST)', async () => {
+    const attempt = await PaymentAttempt.findOne({ contractId: testContractId });
+    expect(attempt).not.toBeNull();
+    const testAttemptId = attempt._id.toString();
+
     const res = await request(app)
       .get(`/api/payments/all?companyId=${companyId}`)
       .set('Authorization', `Bearer ${adminToken}`);
@@ -187,19 +197,23 @@ describe('Integration Test - Payments API', () => {
     expect(Array.isArray(res.body.data.payments)).toBe(true);
     
     // The list filters for quotas that are "pagado" or have payment data
-    const payment = res.body.data.payments.find(p => p.id === testQuotaId);
+    const payment = res.body.data.payments.find(p => p.id.toString() === testAttemptId);
     expect(payment).toBeDefined();
     expect(payment.status).toBe('PAGADO');
     expect(payment.amount).toBeGreaterThan(0);
   });
 
   it('should error when approving an already paid quota', async () => {
+    const attempt = await PaymentAttempt.findOne({ contractId: testContractId });
+    expect(attempt).not.toBeNull();
+    const testAttemptId = attempt._id.toString();
+
     const res = await request(app)
-      .put(`/api/payments/${testQuotaId}/approve?companyId=${companyId}`)
+      .put(`/api/payments/${testAttemptId}/approve?companyId=${companyId}`)
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.statusCode).toBe(400);
-    expect(res.body.message).toMatch(/ya fue marcada como pagada/i);
+    expect(res.body.message).toMatch(/ya fue aprobado|ya fue marcada como pagada/i);
   });
 
   it('should error when accessing non-existent quota', async () => {

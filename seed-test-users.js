@@ -10,6 +10,13 @@ import Company from './src/models/Company.js';
 import Bank from './src/models/Bank.js';
 import UserCompany from './src/models/UserCompany.js';
 
+import Client from './src/models/Client.js';
+import Lot from './src/models/Lot.js';
+import Contract from './src/models/Contract.js';
+import Quota from './src/models/Quota.js';
+import Payment from './src/models/Payment.js';
+import PaymentAttempt from './src/models/PaymentAttempt.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -29,6 +36,13 @@ const seedTestData = async () => {
       User.deleteMany({}),
       Tenant.deleteMany({}),
       Company.deleteMany({}),
+      UserCompany.deleteMany({}),
+      Client.deleteMany({}),
+      Lot.deleteMany({}),
+      Contract.deleteMany({}),
+      Quota.deleteMany({}),
+      Payment.deleteMany({}),
+      PaymentAttempt.deleteMany({}),
     ]);
     console.log('✅ Base Database cleaned');
 
@@ -70,9 +84,9 @@ const seedTestData = async () => {
     });
     console.log(`✅ Superadmin membership assigned to ${systemTenant.name}`);
 
-    // 3. Create a Business Tenant (The user's enterprise)
+    // 3. Create a Business Tenant (The user's enterprise/project)
     const alicanteTenant = await Tenant.create({
-      name: 'Alicante Cobranza',
+      name: 'Alicante',
       plan: 'premium',
       status: 'active',
     });
@@ -81,51 +95,68 @@ const seedTestData = async () => {
     // 4. Create a Company within that tenant
     const alfasurCompany = await Company.create({
       tenantId: alicanteTenant._id,
-      name: 'Alfasur S.A.',
+      name: 'Empresas de prueba',
     });
     console.log(`✅ Company created: ${alfasurCompany.name}`);
 
-    // 5. Create a Tenant Admin for Alicante
-    const adminAccount = await UserAccount.create({
-      email: 'admin@cobra.com',
-      passwordHash: '12345678',
-      fullName: 'Administrador Alicante',
-    });
-    console.log(`✅ Admin account created: ${adminAccount.email}`);
+    // 5. Create accounts and memberships for all roles
+    const rolesToCreate = [
+      { email: 'admin@cobra.com', role: 'tenant_admin', name: 'Tenant Admin' },
+      { email: 'administrador@cobra.com', role: 'administrador', name: 'Administrador' },
+      { email: 'gerente@cobra.com', role: 'gerente', name: 'Gerente' },
+      { email: 'jefe_cartera@cobra.com', role: 'jefe_cartera', name: 'Jefe de Cartera' },
+      { email: 'auxiliar_cartera@cobra.com', role: 'auxiliar_cartera', name: 'Auxiliar de Cartera' },
+      { email: 'contador@cobra.com', role: 'contador', name: 'Contador' },
+      { email: 'auxiliar_contable@cobra.com', role: 'auxiliar_contable', name: 'Auxiliar Contable' },
+      { email: 'ejecutivo_comercial@cobra.com', role: 'ejecutivo_comercial', name: 'Ejecutivo Comercial' },
+      { email: 'vendedor@cobra.com', role: 'vendedor', name: 'Vendedor Marcos' },
+      { email: 'cliente@cobra.com', role: 'cliente', name: 'Cliente Test' },
+    ];
 
-    await User.create({
-      accountId: adminAccount._id,
-      tenantId: alicanteTenant._id,
-      role: 'tenant_admin',
-    });
-    console.log(`✅ Admin membership assigned to ${alicanteTenant.name}`);
+    console.log('\n--- Creating Role Accounts ---');
+    for (const r of rolesToCreate) {
+      const account = await UserAccount.create({
+        email: r.email,
+        passwordHash: '12345678',
+        fullName: r.name,
+      });
 
-    const vendedorAccount = await UserAccount.create({
-      email: 'vendedor@cobra.com',
-      passwordHash: '12345678',
-      fullName: 'Vendedor Marcos',
-    });
-    console.log(`✅ Vendedor account created: ${vendedorAccount.email}`);
+      const userMembership = await User.create({
+        accountId: account._id,
+        tenantId: alicanteTenant._id,
+        role: r.role,
+      });
 
-    const vendedorMembership = await User.create({
-      accountId: vendedorAccount._id,
-      tenantId: alicanteTenant._id,
-      role: 'vendedor',
-    });
+      // Link to Company if role is supported by UserCompany
+      const companyRoles = [
+        'company_admin',
+        'agent',
+        'vendedor',
+        'administrador',
+        'gerente',
+        'jefe_cartera',
+        'auxiliar_cartera',
+        'contador',
+        'auxiliar_contable',
+        'ejecutivo_comercial'
+      ];
 
-    // CRITICAL: Link Vendedor to Company
-    await UserCompany.create({
-      userId: vendedorMembership._id,
-      companyId: alfasurCompany._id,
-      tenantId: alicanteTenant._id,
-      role: 'vendedor',
-    });
-    console.log(`✅ Vendedor membership assigned to ${alicanteTenant.name} and linked to ${alfasurCompany.name}`);
+      if (companyRoles.includes(r.role)) {
+        await UserCompany.create({
+          userId: userMembership._id,
+          companyId: alfasurCompany._id,
+          tenantId: alicanteTenant._id,
+          role: r.role,
+        });
+      }
+      console.log(`✅ Created ${r.role}: ${r.email}`);
+    }
 
     console.log('\n--- Credentials for Testing ---');
     console.log('Superadmin (Platform):   superadmin@cobra.com / 12345678');
-    console.log('Tenant Admin (Alicante): admin@cobra.com / 12345678');
-    console.log('Vendedor (Alicante):     vendedor@cobra.com / 12345678');
+    for (const r of rolesToCreate) {
+      console.log(`${r.name.padEnd(24)}: ${r.email} / 12345678`);
+    }
     console.log('-------------------------------\n');
 
     // --- BANK SEEDING ---

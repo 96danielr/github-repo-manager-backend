@@ -42,7 +42,7 @@ describe('Full 100% RBAC Coverage Test Suite', () => {
 
   const testCases = [
     { method: 'get', path: '/api/lots', roles: { superadmin: true, admin: true, vendedor: true } },
-    { method: 'post', path: '/api/lots', body: () => ({ companyId }), roles: { superadmin: true, admin: true, vendedor: true } },
+    { method: 'post', path: '/api/lots', body: () => ({ companyId }), roles: { superadmin: true, admin: true, vendedor: false } },
     { method: 'delete', path: `/api/lots/${lotId}`, roles: { superadmin: true, admin: true, vendedor: false } },
     { method: 'get', path: '/api/clients', roles: { superadmin: true, admin: true, vendedor: true } },
     { method: 'post', path: '/api/clients', body: () => ({ companyId }), roles: { superadmin: true, admin: true, vendedor: true } },

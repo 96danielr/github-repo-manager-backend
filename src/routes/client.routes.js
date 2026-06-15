@@ -43,7 +43,7 @@ router.get('/', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_VIEW), a
       companyId: new mongoose.Types.ObjectId(companyId), 
     };
 
-    if (role === 'vendedor') {
+    if (role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent') {
       const sellerClients = await Contract.find({ tenantId, companyId, sellerId: userId }).distinct('client');
       matchQuery.$or = [
         { _id: { $in: sellerClients } },
@@ -208,7 +208,7 @@ router.get('/:id', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_DETAI
     const { id } = req.params;
 
     const query = { _id: id, tenantId, companyId };
-    if (role === 'vendedor') {
+    if (role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent') {
       const hasContract = await Contract.exists({ client: id, sellerId: userId, tenantId, companyId });
       if (!hasContract) {
         return res.status(403).json({ success: false, message: 'No tienes permiso para ver este cliente' });

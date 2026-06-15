@@ -18,7 +18,7 @@ const userCompanySchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['company_admin', 'agent', 'vendedor'],
+    enum: ['company_admin', 'agent', 'vendedor', 'administrador', 'gerente', 'jefe_cartera', 'auxiliar_cartera', 'contador', 'auxiliar_contable', 'ejecutivo_comercial'],
     required: true,
   },
 }, {

@@ -81,7 +81,7 @@ export const getSellers = async (req, res, next) => {
 
     let query = { 
       tenantId, 
-      role: 'vendedor',
+      role: { $in: ['vendedor', 'ejecutivo_comercial'] },
       status: 'active',
     };
 
@@ -93,7 +93,7 @@ export const getSellers = async (req, res, next) => {
       const companyMemberships = await UserCompany.find({ companyId, tenantId })
         .populate({
           path: 'userId',
-          match: { role: 'vendedor', status: 'active' },
+          match: { role: { $in: ['vendedor', 'ejecutivo_comercial'] }, status: 'active' },
           populate: { path: 'accountId', select: 'fullName email' },
         });
       
@@ -143,7 +143,11 @@ export const createUser = async (req, res, next) => {
       companyIds = [];
     }
 
-    const validRoles = ['tenant_admin', 'company_admin', 'agent', 'vendedor'];
+    const validRoles = [
+      'tenant_admin', 'company_admin', 'agent', 'vendedor',
+      'administrador', 'gerente', 'jefe_cartera', 'auxiliar_cartera',
+      'contador', 'auxiliar_contable', 'ejecutivo_comercial'
+    ];
     if (!validRoles.includes(role)) {
       return next(new AppError(`Invalid role. Must be one of: ${validRoles.join(', ')}`, 400));
     }
