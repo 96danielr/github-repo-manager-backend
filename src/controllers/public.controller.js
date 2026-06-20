@@ -34,6 +34,10 @@ export const getReceiptPDF = async (req, res, next) => {
     }
 
     const company = await Company.findById(quota.companyId);
+    
+    // Load Tenant (Matriz) info from Settings
+    const Tenant = (await import('../models/Tenant.js')).default;
+    const tenant = await Tenant.findById(quota.tenantId);
 
     const receiptData = {
       quotaNumber: quota.number,
@@ -44,15 +48,15 @@ export const getReceiptPDF = async (req, res, next) => {
       clientPhone: quota.contract.client.phone || '',
       clientAddress: quota.contract.client.address || '',
       clientCity: quota.contract.client.expeditionPlace || '',
-      companyName: company?.name || '',
-      companyNit: company?.nit || '',
-      companyAddress: company?.address || '',
-      companyPhone: company?.phone || '',
+      companyName: tenant?.name || company?.name || '',
+      companyNit: tenant?.nit || company?.nit || '',
+      companyAddress: tenant?.address || company?.address || '',
+      companyPhone: tenant?.phone || company?.phone || '',
       companyLogo: company?.projectLogo || company?.logo || '',
       lotInfo: quota.contract.lot 
         ? `Etapa: ${quota.contract.lot.stage || '-'} - Manzana: ${quota.contract.lot.manzana || '-'} - Lote: ${quota.contract.lot.lotNumber || '-'}${quota.contract.lot.nomenclature ? ` (${quota.contract.lot.nomenclature})` : ''}`
         : 'N/A',
-      projectName: quota.contract.negotiation || '',
+      projectName: company?.name || '',
       paymentBank: quota.paymentBank,
       observations: quota.paymentObservations,
       paymentCapture: quota.paymentCapture,

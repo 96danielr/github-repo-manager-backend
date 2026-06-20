@@ -167,6 +167,9 @@ export const getPayments = async (req, res, next) => {
         fechaPago: qObj.fechaPago || qObj.createdAt,
         comprobante: qObj.comprobante || null,
         status: qObj.status === 'APROBADO' ? 'PAGADO' : (qObj.status === 'RECHAZADO' ? 'RECHAZADO' : 'PENDIENTE'),
+        observacion: qObj.status === 'RECHAZADO' ? (qObj.rejectedReason || '') : '',
+        observations: qObj.observations || '',
+        rejectedReason: qObj.rejectedReason || '',
         type: firstQuota?.type || 'normal',
         contract: {
           client: {
@@ -284,11 +287,13 @@ export const approvePayment = async (req, res, next) => {
   try {
     const { tenantId, companyId, userId } = req.user;
     const { id: attemptId } = req.params;
+    const { observacion } = req.body;
 
     console.log('[LOG][APPROVE_PAYMENT] Solicitud de aprobación recibida para Intento de Pago:', {
       attemptId,
       tenantId,
-      companyId
+      companyId,
+      observacion
     });
 
     const attempt = await PaymentAttempt.findOne({ _id: attemptId, tenantId, companyId });
@@ -296,6 +301,9 @@ export const approvePayment = async (req, res, next) => {
       console.warn('[LOG][APPROVE_PAYMENT] Error: Intento de pago no encontrado con ID:', attemptId);
       return next(new AppError('Intento de pago no encontrado', 404));
     }
+
+    // Set operator observation
+    attempt.observations = observacion || '';
 
     if (attempt.status === 'APROBADO') {
       console.warn('[LOG][APPROVE_PAYMENT] Advertencia: El intento de pago ya fue aprobado:', attemptId);
