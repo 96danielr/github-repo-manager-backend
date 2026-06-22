@@ -16,6 +16,76 @@ export const getReceiptPDF = async (req, res, next) => {
     let { quotaId } = req.params;
     quotaId = quotaId.replace(/[^a-fA-F0-9]/g, '');
 
+    // Check if an approved PaymentAttempt contains this quota
+    const attempt = await PaymentAttempt.findOne({
+      'quotas.quotaId': quotaId,
+      status: 'APROBADO'
+    });
+
+    if (attempt) {
+      // If a matching payment attempt is found, generate the consolidated receipt for the entire transaction!
+      const quotaIds = attempt.quotas.map(q => q.quotaId);
+      const quotas = await Quota.find({ _id: { $in: quotaIds } })
+        .populate({
+          path: 'contract',
+          populate: [
+            { path: 'client' },
+            { path: 'lot' },
+          ],
+        })
+        .sort({ type: 1, number: 1 });
+
+      if (quotas.length > 0) {
+        const firstQuota = quotas[0];
+        const company = await Company.findById(firstQuota.companyId);
+        
+        // Load Tenant (Matriz) info from Settings
+        const Tenant = (await import('../models/Tenant.js')).default;
+        const tenant = await Tenant.findById(firstQuota.tenantId);
+
+        const quotaNumbers = quotas.map(q => {
+          const isSeparation = q.number === 0 || q.number === '0';
+          return isSeparation ? 'SEPARACIÓN' : `${q.number}`;
+        }).join(', ');
+
+        const breakdownLines = quotas.map(q => {
+          const isSeparation = q.number === 0 || q.number === '0';
+          const quotaName = isSeparation ? 'Separación' : `Cuota #${q.number}`;
+          const quotaType = q.type === 'inicial' ? 'Inicial' : 'Ordinaria';
+          const appliedAmount = attempt.quotas.find(entry => entry.quotaId.toString() === q._id.toString())?.amount || q.amountPaid || q.value;
+          return `${quotaName} (${quotaType}): $${Number(appliedAmount).toLocaleString('es-CO')}`;
+        }).join(' | ');
+
+        const combinedObservations = `Distribución de pago: [ ${breakdownLines} ]. ${attempt.observations || ''}`;
+
+        const receiptData = {
+          quotaNumber: quotaNumbers,
+          amount: attempt.amount,
+          date: attempt.fechaPago || attempt.createdAt,
+          clientName: firstQuota.contract.client.name,
+          clientId: firstQuota.contract.client.idNumber,
+          clientPhone: firstQuota.contract.client.phone || '',
+          clientAddress: firstQuota.contract.client.address || '',
+          clientCity: firstQuota.contract.client.expeditionPlace || '',
+          companyName: tenant?.name || company?.name || '',
+          companyNit: tenant?.nit || company?.nit || '',
+          companyAddress: tenant?.address || company?.address || '',
+          companyPhone: tenant?.phone || company?.phone || '',
+          companyLogo: company?.projectLogo || company?.logo || '',
+          lotInfo: firstQuota.contract.lot 
+            ? `Etapa: ${firstQuota.contract.lot.stage || '-'} - Manzana: ${firstQuota.contract.lot.manzana || '-'} - Lote: ${firstQuota.contract.lot.lotNumber || '-'}${firstQuota.contract.lot.nomenclature ? ` (${firstQuota.contract.lot.nomenclature})` : ''}`
+            : 'N/A',
+          projectName: company?.name || '',
+          paymentBank: attempt.banco,
+          observations: combinedObservations,
+          paymentCapture: attempt.comprobante,
+        };
+
+        return await generateReceiptStream(receiptData, res);
+      }
+    }
+
+    // Fallback to legacy single quota receipt if no PaymentAttempt is found
     const quota = await Quota.findById(quotaId)
       .populate({
         path: 'contract',

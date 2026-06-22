@@ -1,10 +1,14 @@
 import express from 'express';
 import multer from 'multer';
 import { 
+  getPortalHome,
   getPortalSummary, 
   getMyLots, 
   getMyPayments,
-  reportPortalPayment
+  reportPortalPayment,
+  getPortalReceiptPDF,
+  getPortalContractDetail,
+  getPortalStatementPDF
 } from '../controllers/portal.controller.js';
 import { protect, restrictTo } from '../middleware/auth.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -36,9 +40,13 @@ router.use(restrictTo('cliente'));
 // Apply tenant context if needed (usually tenantId is in the user object)
 router.use(tenantMiddleware);
 
+router.get('/home', getPortalHome);
 router.get('/summary', getPortalSummary);
 router.get('/lots', getMyLots);
 router.get('/payments', getMyPayments);
 router.post('/report-payment', upload.single('comprobante'), reportPortalPayment);
+router.get('/receipt/:paymentId', getPortalReceiptPDF);
+router.get('/contract/:id', getPortalContractDetail);
+router.get('/statement/:contractId', getPortalStatementPDF);
 
 export default router;
