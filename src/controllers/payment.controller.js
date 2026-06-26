@@ -8,6 +8,7 @@ import PaymentAttempt from '../models/PaymentAttempt.js';
 import AppError from '../utils/AppError.js';
 import { sendSMS, sendEmail, sendWhatsApp } from '../utils/notifications.js';
 import { logAudit } from '../utils/auditLogger.js';
+import { generateSiigoExcel } from '../utils/siigoExport.js';
 
 const migrateLegacyPayments = async (tenantId, companyId) => {
   try {
@@ -738,3 +739,70 @@ export const resendReceipt = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Export approved payments as a Siigo Excel file
+ */
+export const exportSiigoExcel = async (req, res, next) => {
+  try {
+    const { tenantId, companyId } = req.user;
+    const { 
+      startDate, 
+      endDate, 
+      comprobanteTipo = '14', 
+      cuentaCartera = '13050502', 
+      centroCostos = '001', 
+      defaultCuentaBanco = '11200501' 
+    } = req.query;
+
+    const query = {
+      tenantId,
+      companyId,
+      status: 'APROBADO'
+    };
+
+    if (startDate || endDate) {
+      query.fechaPago = {};
+      if (startDate) {
+        query.fechaPago.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.fechaPago.$lte = end;
+      }
+    }
+
+    // Load company config for bank accounts
+    const company = await Company.findOne({ _id: companyId, tenantId }).select('bankAccounts');
+
+    // Fetch and populate payment attempts
+    const attempts = await PaymentAttempt.find(query)
+      .populate({
+        path: 'contractId',
+        populate: [
+          { path: 'client', select: 'name idNumber' },
+          { path: 'lot', select: 'number stage manzana' },
+          { path: 'companyId', select: 'name' }
+        ]
+      })
+      .populate('clientId', 'name idNumber')
+      .populate('quotas.quotaId')
+      .sort({ fechaPago: 1 });
+
+    const buffer = generateSiigoExcel(attempts, {
+      comprobanteTipo,
+      cuentaCartera,
+      centroCostos,
+      defaultCuentaBanco,
+      companyBankAccounts: company ? company.bankAccounts : []
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=siigo-import-pagos.xlsx');
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+

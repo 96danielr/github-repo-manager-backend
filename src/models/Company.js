@@ -57,7 +57,8 @@ const companySchema = new mongoose.Schema({
     numeroCuenta: { type: String, required: true },
     titular: { type: String },
     qrCode: { type: String },
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    accountingAccount: { type: String, default: '' }
   }],
   integrations: {
     whatsappEnabled: { type: Boolean, default: false },

@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { getPayments, approvePayment, rejectPayment, registerManualPayment, resendReceipt } from '../controllers/payment.controller.js';
+import { getPayments, approvePayment, rejectPayment, registerManualPayment, resendReceipt, exportSiigoExcel } from '../controllers/payment.controller.js';
 import { protect, checkPermission } from '../middleware/auth.js';
 import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -25,6 +25,11 @@ router.get('/all',
   companyMiddleware, 
   checkPermission(PERMISSIONS.PAGOS_VIEW), 
   getPayments
+);
+router.get('/siigo-export',
+  companyMiddleware,
+  checkPermission(PERMISSIONS.PAGOS_VIEW),
+  exportSiigoExcel
 );
 router.post('/manual', 
   companyMiddleware, 
