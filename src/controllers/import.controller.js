@@ -122,11 +122,18 @@ export const importExcel = async (req, res) => {
         // New format uses 'NOMBRE', old format uses 'CLIENTE'
         const clienteNombre = getValMulti(row, 'CLIENTE', 'NOMBRE')?.toString().trim();
 
-        const nomenclature = getValMulti(row, 'NOMENCLATURA', 'Nomenclatura')?.toString() || undefined;
-        const reference = getValMulti(row, 'REFERENCIA', 'Referencia')?.toString().trim() || undefined;
+        let nomenclature = getValMulti(row, 'NOMENCLATURA', 'Nomenclatura')?.toString() || undefined;
+        let reference = getValMulti(row, 'REFERENCIA', 'Referencia')?.toString().trim() || undefined;
         const manzana = getValMulti(row, 'MANZANA', 'Manzana', 'Block', 'block', 'Manzana (Block)')?.toString().trim() || undefined;
+        const lotNumber = getValMulti(row, 'LOTE', 'Lote', 'Nomenclatura')?.toString() || 'N/A';
         
-        // Validation: If no reference or nomenclature, skip the row (per instructions)
+        // If reference and nomenclature are not explicitly present, build them from MANZANA and LOTE
+        if (!reference && !nomenclature && (manzana || lotNumber !== 'N/A')) {
+          reference = `MZ_${manzana || '0'}_LT_${lotNumber}`;
+          nomenclature = `Mz ${manzana || '0'} Lt ${lotNumber}`;
+        }
+
+        // Validation: If no reference or nomenclature, skip the row
         if (!reference && !nomenclature) {
           summary.rowsSkipped++;
           summary.rowsProcessed++;
@@ -134,14 +141,16 @@ export const importExcel = async (req, res) => {
         }
 
         const stage = getVal(row, 'ETAPA')?.toString() || 'Etapa 1';
-        const lotNumber = getValMulti(row, 'LOTE', 'Lote', 'Nomenclatura')?.toString() || 'N/A';
         // Identification is by combination of reference and nomenclature
         const refClean = (reference || '').toString().trim().toLowerCase();
         const nomClean = (nomenclature || '').toString().trim().toLowerCase();
         const lotKey = `${refClean}|${nomClean}`;
         
-        const contratoStatus = getValMulti(row, 'CONTRATOS', 'CONTRATO')?.toString().trim();
-        const contratoStatusUpper = contratoStatus?.toUpperCase();
+        let contratoStatus = getValMulti(row, 'CONTRATOS', 'CONTRATO', 'ESTADO CONTRATO', 'ESTADO')?.toString().trim();
+        if (!contratoStatus) {
+          contratoStatus = 'FIRMADO'; // Default to FIRMADO if column is omitted
+        }
+        const contratoStatusUpper = contratoStatus.toUpperCase();
         
         let lotStatus = 'disponible';
         if (contratoStatusUpper === 'FIRMADO' || contratoStatusUpper === 'FIRMADO SOLO RL') {
@@ -279,7 +288,7 @@ export const importExcel = async (req, res) => {
             // New format: 'VALOR TOTAL', old: 'VALOR DEL CONTRATO'
             totalValue: parseNumStringWithLocalization(getValMulti(row, 'VALOR DEL CONTRATO', 'VALOR TOTAL')),
             // New format: 'NUMERO DE CUOTAS', old: 'NO. CUOTAS'
-            installmentsCount: parseInt(getValMulti(row, 'NO. CUOTAS', 'NUMERO DE CUOTAS')) || 0,
+            installmentsCount: parseInt(getValMulti(row, 'NO. CUOTAS', 'NUMERO DE CUOTAS', 'NUMERO CUOTAS', 'PLAZO CUOTAS')) || 0,
             installmentValue: parseNumStringWithLocalization(getVal(row, 'VALOR CUOTA')),
             paymentDay: parseInt(getVal(row, 'DIA DE PAGO')) || 0,
             startDate: parseExcelDate(getVal(row, 'FECHA INICIO CUOTAS')),
@@ -320,6 +329,12 @@ export const importExcel = async (req, res) => {
             contractIdsToClearQuotas.add(contract._id);
 
             // Initial Quotas (1 to 3)
+            const initialQuotasCount = contractInfo.initialQuotasCount || 1;
+            const initialQuotaTotalVal = (contractInfo.totalValue && contractInfo.initialQuotaPercentage)
+              ? (contractInfo.totalValue * (contractInfo.initialQuotaPercentage / 100))
+              : 0;
+            const singleInitialQuotaValue = initialQuotasCount > 0 ? (initialQuotaTotalVal / initialQuotasCount) : 0;
+
             for (let j = 1; j <= 3; j++) {
               const headerKey = `CUOTA INICIAL ${j}`;
               const quotaKey = getVal(row, headerKey);
@@ -340,19 +355,25 @@ export const importExcel = async (req, res) => {
                   }
                 }
 
+                const targetInitialVal = singleInitialQuotaValue > 0 ? singleInitialQuotaValue : val;
+                const isInitialPaid = val >= targetInitialVal;
+
                 quotasToInsert.push({
                   tenantId,
                   companyId,
                   contract: contract._id,
                   number: j,
                   type: 'inicial',
-                  value: val,
-                  status: 'pagado',
+                  value: targetInitialVal,
+                  amountPaid: val,
+                  status: isInitialPaid ? 'pagado' : 'pendiente',
                   paymentMethod: paymentMethod,
                   excelRowId: excelRowId,
                 });
                 summary.initialQuotasCreated++;
-                summary.quotasMarkedPaid++;
+                if (isInitialPaid) {
+                  summary.quotasMarkedPaid++;
+                }
               }
             }
 
@@ -384,20 +405,26 @@ export const importExcel = async (req, res) => {
                   }
                 }
 
+                const targetValue = installmentValue > 0 ? installmentValue : valFromExcel;
+                const isFullyPaid = valFromExcel >= targetValue;
+
                 quotasToInsert.push({
                   tenantId,
                   companyId,
                   contract: contract._id,
                   number: j,
                   type: 'normal',
-                  value: valFromExcel,
+                  value: targetValue,
+                  amountPaid: valFromExcel,
                   dueDate,
-                  status: 'pagado',
+                  status: isFullyPaid ? 'pagado' : 'pendiente',
                   paymentMethod: paymentMethod,
                   excelRowId: excelRowId,
                 });
                 summary.normalQuotasCreated++;
-                summary.quotasMarkedPaid++;
+                if (isFullyPaid) {
+                  summary.quotasMarkedPaid++;
+                }
               } else {
                 // Generate as PENDING if not in Excel but within installmentsCount
                 quotasToInsert.push({
@@ -407,6 +434,7 @@ export const importExcel = async (req, res) => {
                   number: j,
                   type: 'normal',
                   value: installmentValue,
+                  amountPaid: 0,
                   dueDate,
                   status: 'pendiente',
                   excelRowId: excelRowId,

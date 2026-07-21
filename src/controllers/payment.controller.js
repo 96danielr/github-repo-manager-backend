@@ -358,7 +358,7 @@ export const approvePayment = async (req, res, next) => {
               pq.amountPaid = pq.value;
               pq.paymentBank = attempt.banco;
               pq.paymentMethod = attempt.paymentMethod;
-              pq.paymentObservations = `${attempt.observations || ''} (Aprobación excedente cascada de cuota #${qDoc.number})`;
+              pq.paymentObservations = `${attempt.observations || ''} (Abono por excedente cuota #${qDoc.number})`;
               pq.paymentDate = attempt.fechaPago || new Date();
               pq.paymentCapture = attempt.comprobante;
               await pq.save();
@@ -368,7 +368,7 @@ export const approvePayment = async (req, res, next) => {
               pq.amountPaid = (pq.amountPaid || 0) + excess;
               pq.paymentBank = attempt.banco;
               pq.paymentMethod = attempt.paymentMethod;
-              pq.paymentObservations = `${attempt.observations || ''} (Aprobación abono excedente cascada de cuota #${qDoc.number})`;
+              pq.paymentObservations = `${attempt.observations || ''} (Abono parcial por excedente cuota #${qDoc.number})`;
               pq.paymentDate = attempt.fechaPago || new Date();
               pq.paymentCapture = attempt.comprobante;
               await pq.save();
