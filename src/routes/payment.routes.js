@@ -44,7 +44,7 @@ router.put('/:id/approve',
 );
 router.post('/:id/resend-receipt', 
   companyMiddleware, 
-  checkPermission(PERMISSIONS.PAGOS_APPROVE), 
+  checkPermission(PERMISSIONS.PAGOS_RECEIPT), 
   resendReceipt
 );
 
