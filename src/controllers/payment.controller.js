@@ -707,9 +707,24 @@ export const registerManualPayment = async (req, res, next) => {
 export const resendReceipt = async (req, res, next) => {
   try {
     const { tenantId, companyId } = req.user;
-    const { id: quotaId } = req.params;
+    const { id: paramId } = req.params;
 
-    const quota = await Quota.findOne({ _id: quotaId, tenantId, companyId });
+    let quota = await Quota.findOne({ _id: paramId, tenantId, companyId });
+
+    if (!quota) {
+      // Check if paramId belongs to a PaymentAttempt
+      const attempt = await PaymentAttempt.findOne({ _id: paramId, tenantId, companyId });
+      if (attempt) {
+        if (attempt.status !== 'APROBADO') {
+          return next(new AppError('Solo se pueden reenviar recibos de pagos aprobados', 400));
+        }
+        const quotaId = attempt.quotas?.[0]?.quotaId;
+        if (quotaId) {
+          quota = await Quota.findOne({ _id: quotaId, tenantId, companyId });
+        }
+      }
+    }
+
     if (!quota) {
       return next(new AppError('Pago no encontrado', 404));
     }
@@ -718,7 +733,7 @@ export const resendReceipt = async (req, res, next) => {
       return next(new AppError('Solo se pueden reenviar recibos de pagos aprobados', 400));
     }
 
-    const sent = await sendPaymentNotifications(req, quotaId, companyId);
+    const sent = await sendPaymentNotifications(req, quota._id, companyId);
     
     if (!sent) {
       return next(new AppError('No se pudo enviar el recibo. Verifique que el cliente tenga datos de contacto.', 400));
