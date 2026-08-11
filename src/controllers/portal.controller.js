@@ -5,6 +5,7 @@ import Quota from '../models/Quota.js';
 import Contract from '../models/Contract.js';
 import PaymentAttempt from '../models/PaymentAttempt.js';
 import Company from '../models/Company.js';
+import { getNextSequence } from '../models/Counter.js';
 import AppError from '../utils/AppError.js';
 import { uploadToR2 } from '../utils/storage.js';
 import { generateReceiptStream } from '../utils/receipt.js';
@@ -289,6 +290,7 @@ export const getMyPayments = async (req, res, next) => {
 
       return {
         _id: a._id,
+        receiptNumber: a.receiptNumber || null,
         amount: a.amount,
         status: statusStr,
         referencia: referenceName,
@@ -431,6 +433,12 @@ export const getPortalReceiptPDF = async (req, res, next) => {
     const Tenant = (await import('../models/Tenant.js')).default;
     const tenant = await Tenant.findById(firstQuota.tenantId);
 
+    if (!attempt.receiptNumber) {
+      attempt.receiptNumber = await getNextSequence(firstQuota.companyId, firstQuota.tenantId, 'RECEIPT');
+      await attempt.save();
+      await Quota.updateMany({ _id: { $in: quotaIds } }, { $set: { receiptNumber: attempt.receiptNumber } });
+    }
+
     // Format quota numbers (e.g. "2, 3")
     const quotaNumbers = quotas.map(q => {
       const isSeparation = q.number === 0 || q.number === '0';
@@ -449,6 +457,7 @@ export const getPortalReceiptPDF = async (req, res, next) => {
     const combinedObservations = `Distribución de pago: [ ${breakdownLines} ]. ${attempt.observations || ''}`;
 
     const receiptData = {
+      receiptNumber: attempt.receiptNumber,
       quotaNumber: quotaNumbers,
       amount: attempt.amount,
       date: attempt.fechaPago || attempt.createdAt,

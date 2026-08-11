@@ -122,6 +122,7 @@ function numeroALetras(num) {
  */
 export const generateReceiptStream = async (data, res) => {
   const {
+    receiptNumber,
     quotaNumber,
     amount,
     date,
@@ -147,8 +148,9 @@ export const generateReceiptStream = async (data, res) => {
   });
 
   // Stream directly to response
+  const fileNum = receiptNumber !== undefined && receiptNumber !== null ? receiptNumber : quotaNumber;
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename=recibo_${quotaNumber}.pdf`);
+  res.setHeader('Content-Disposition', `inline; filename=recibo_caja_${fileNum}.pdf`);
   doc.pipe(res);
 
   // ================= COMPANY LOGO (Dynamic / Placeholder) =================
@@ -209,11 +211,14 @@ export const generateReceiptStream = async (data, res) => {
      .text('Recibo Caja/Ingreso', 410, 45, { width: 167, align: 'right' });
   
   const isSeparation = Number(quotaNumber) === 0 || quotaNumber === '0';
+  const receiptLabel = receiptNumber !== undefined && receiptNumber !== null
+    ? `No. ${receiptNumber}`
+    : (isSeparation ? 'No SEPARACIÓN' : `No ${quotaNumber}`);
 
   doc.fontSize(12)
      .font('Helvetica-Bold')
      .fillColor('#2e7d32')
-     .text(isSeparation ? 'No SEPARACIÓN' : `No ${quotaNumber}`, 410, 68, { width: 167, align: 'right' });
+     .text(receiptLabel, 410, 68, { width: 167, align: 'right' });
 
   // ================= GRID CONTAINER (Client & Payment Info) =================
   const gridY = 120;

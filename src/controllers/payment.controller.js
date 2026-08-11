@@ -5,6 +5,7 @@ import Client from '../models/Client.js';
 import Company from '../models/Company.js';
 import Lot from '../models/Lot.js';
 import PaymentAttempt from '../models/PaymentAttempt.js';
+import { getNextSequence } from '../models/Counter.js';
 import AppError from '../utils/AppError.js';
 import { sendSMS, sendEmail, sendWhatsApp } from '../utils/notifications.js';
 import { logAudit } from '../utils/auditLogger.js';
@@ -150,7 +151,7 @@ export const getPayments = async (req, res, next) => {
         },
       })
       .populate('clientId', 'name idNumber phone')
-      .populate('quotas.quotaId', 'number type receiptUrl')
+      .populate('quotas.quotaId', 'number type receiptUrl receiptNumber')
       .sort(sortObj)
       .skip(skip)
       .limit(limitNum)
@@ -163,6 +164,7 @@ export const getPayments = async (req, res, next) => {
       return {
         id: qObj._id,
         cuotaNumber: firstQuota?.number || 0,
+        receiptNumber: qObj.receiptNumber || firstQuota?.receiptNumber || null,
         amount: qObj.amount || 0,
         banco: qObj.banco || 'N/A',
         fechaPago: qObj.fechaPago || qObj.createdAt,
@@ -311,6 +313,10 @@ export const approvePayment = async (req, res, next) => {
       return next(new AppError('Este intento de pago ya fue aprobado', 400));
     }
 
+    if (!attempt.receiptNumber) {
+      attempt.receiptNumber = await getNextSequence(companyId, tenantId, 'RECEIPT');
+    }
+
     const paidQuotasAccumulator = [];
 
     // Process each target quota in the attempt
@@ -334,6 +340,7 @@ export const approvePayment = async (req, res, next) => {
         qDoc.paymentObservations = attempt.observations;
         qDoc.paymentDate = attempt.fechaPago || new Date();
         qDoc.paymentCapture = attempt.comprobante;
+        qDoc.receiptNumber = attempt.receiptNumber;
         await qDoc.save();
         paidQuotasAccumulator.push(qDoc._id);
 
@@ -361,6 +368,7 @@ export const approvePayment = async (req, res, next) => {
               pq.paymentObservations = `${attempt.observations || ''} (Abono por excedente cuota #${qDoc.number})`;
               pq.paymentDate = attempt.fechaPago || new Date();
               pq.paymentCapture = attempt.comprobante;
+              pq.receiptNumber = attempt.receiptNumber;
               await pq.save();
               paidQuotasAccumulator.push(pq._id);
               excess -= pqPendingValue;
@@ -371,6 +379,7 @@ export const approvePayment = async (req, res, next) => {
               pq.paymentObservations = `${attempt.observations || ''} (Abono parcial por excedente cuota #${qDoc.number})`;
               pq.paymentDate = attempt.fechaPago || new Date();
               pq.paymentCapture = attempt.comprobante;
+              pq.receiptNumber = attempt.receiptNumber;
               await pq.save();
               excess = 0;
             }
@@ -387,6 +396,7 @@ export const approvePayment = async (req, res, next) => {
         qDoc.paymentObservations = attempt.observations;
         qDoc.paymentDate = attempt.fechaPago || new Date();
         qDoc.paymentCapture = attempt.comprobante;
+        qDoc.receiptNumber = attempt.receiptNumber;
         await qDoc.save();
         paidQuotasAccumulator.push(qDoc._id);
       }
@@ -534,6 +544,9 @@ export const registerManualPayment = async (req, res, next) => {
     const finalPaymentDate = paymentDate || fechaPago || new Date();
     console.log('[LOG][REGISTER_MANUAL_PAYMENT] Fecha determinada para registro de pago:', finalPaymentDate);
 
+    // Generate atomic receipt number for this manual payment
+    const manualReceiptNumber = await getNextSequence(companyId, tenantId, 'RECEIPT');
+
     // Admin payments are auto-approved. If there is a payment excess, it cascades sequentially.
     const paidAmount = parseFloat(amount) || quota.value;
     const quotaPendingValue = quota.value - (quota.amountPaid || 0);
@@ -559,6 +572,7 @@ export const registerManualPayment = async (req, res, next) => {
       quota.paymentMethod = paymentMethod;
       quota.paymentObservations = `${observations || ''} (Pago inicial)`;
       quota.paymentDate = finalPaymentDate;
+      quota.receiptNumber = manualReceiptNumber;
       if (captureUrl) {
         quota.paymentCapture = captureUrl;
       }
@@ -603,6 +617,7 @@ export const registerManualPayment = async (req, res, next) => {
           pq.paymentMethod = paymentMethod;
           pq.paymentObservations = `${observations || ''} (Excedente en cascada de pago de la cuota #${quota.number})`;
           pq.paymentDate = finalPaymentDate;
+          pq.receiptNumber = manualReceiptNumber;
           if (captureUrl) {
             pq.paymentCapture = captureUrl;
           }
@@ -619,6 +634,7 @@ export const registerManualPayment = async (req, res, next) => {
           pq.paymentMethod = paymentMethod;
           pq.paymentObservations = `${observations || ''} (Abono parcial en cascada de pago de la cuota #${quota.number})`;
           pq.paymentDate = finalPaymentDate;
+          pq.receiptNumber = manualReceiptNumber;
           if (captureUrl) {
             pq.paymentCapture = captureUrl;
           }
@@ -640,6 +656,7 @@ export const registerManualPayment = async (req, res, next) => {
       quota.paymentMethod = paymentMethod;
       quota.paymentObservations = observations;
       quota.paymentDate = finalPaymentDate;
+      quota.receiptNumber = manualReceiptNumber;
       if (captureUrl) {
         quota.paymentCapture = captureUrl;
       }
@@ -663,6 +680,7 @@ export const registerManualPayment = async (req, res, next) => {
         fechaPago: finalPaymentDate,
         comprobante: captureUrl || undefined,
         observations: observations,
+        receiptNumber: manualReceiptNumber,
         status: 'APROBADO',
         approvedBy: req.user.userId,
         approvedAt: new Date()

@@ -39,3 +39,5 @@ Thumbs.db
 # Temp
 tmp/
 temp/
+scratch/
+implementation_plan_id_global.md

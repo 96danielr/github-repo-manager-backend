@@ -81,9 +81,14 @@ const paymentAttemptSchema = new mongoose.Schema({
   rejectedAt: {
     type: Date,
   },
+  receiptNumber: {
+    type: Number,
+    index: true,
+  },
 }, { timestamps: true });
 
 paymentAttemptSchema.index({ tenantId: 1, companyId: 1, status: 1 });
+paymentAttemptSchema.index({ companyId: 1, receiptNumber: 1 });
 paymentAttemptSchema.index({ 'quotas.quotaId': 1 });
 
 export default mongoose.model('PaymentAttempt', paymentAttemptSchema);

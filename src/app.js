@@ -27,6 +27,7 @@ import reportRoutes from './routes/report.routes.js';
 import auditRoutes from './routes/audit.routes.js';
 import bonusRoutes from './routes/bonus.routes.js';
 import paymentScheduleRoutes from './routes/paymentSchedule.routes.js';
+import aiAgentToolRoutes from './routes/ai.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 import connectDB from './config/database.js';
 
@@ -160,6 +161,7 @@ app.use('/api/tenants', tenantRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/banks', bankRoutes);
+app.use('/api/ai', aiAgentToolRoutes);
 app.use('/api/ai', aiChatRoutes);
 app.use('/api/portal', portalRoutes);
 app.use('/api/limits', limitRoutes);

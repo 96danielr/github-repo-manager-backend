@@ -6,6 +6,7 @@ import PaymentAttempt from '../models/PaymentAttempt.js';
 import AppError from '../utils/AppError.js';
 import { uploadToR2 } from '../utils/storage.js';
 import { generateReceiptStream } from '../utils/receipt.js';
+import { getNextSequence } from '../models/Counter.js';
 import { generateStatementStream } from '../utils/statement.js';
 
 /**
@@ -43,6 +44,12 @@ export const getReceiptPDF = async (req, res, next) => {
         const Tenant = (await import('../models/Tenant.js')).default;
         const tenant = await Tenant.findById(firstQuota.tenantId);
 
+        if (!attempt.receiptNumber) {
+          attempt.receiptNumber = await getNextSequence(firstQuota.companyId, firstQuota.tenantId, 'RECEIPT');
+          await attempt.save();
+          await Quota.updateMany({ _id: { $in: quotaIds } }, { $set: { receiptNumber: attempt.receiptNumber } });
+        }
+
         const quotaNumbers = quotas.map(q => {
           const isSeparation = q.number === 0 || q.number === '0';
           return isSeparation ? 'SEPARACIÓN' : `${q.number}`;
@@ -59,6 +66,7 @@ export const getReceiptPDF = async (req, res, next) => {
         const combinedObservations = `Distribución de pago: [ ${breakdownLines} ]. ${attempt.observations || ''}`;
 
         const receiptData = {
+          receiptNumber: attempt.receiptNumber,
           quotaNumber: quotaNumbers,
           amount: attempt.amount,
           date: attempt.fechaPago || attempt.createdAt,
@@ -103,6 +111,11 @@ export const getReceiptPDF = async (req, res, next) => {
       return next(new AppError('El recibo solo está disponible para cuotas con pagos o abonos registrados', 400));
     }
 
+    if (!quota.receiptNumber) {
+      quota.receiptNumber = await getNextSequence(quota.companyId, quota.tenantId, 'RECEIPT');
+      await quota.save();
+    }
+
     const company = await Company.findById(quota.companyId);
     
     // Load Tenant (Matriz) info from Settings
@@ -110,6 +123,7 @@ export const getReceiptPDF = async (req, res, next) => {
     const tenant = await Tenant.findById(quota.tenantId);
 
     const receiptData = {
+      receiptNumber: quota.receiptNumber,
       quotaNumber: quota.number,
       amount: quota.amountPaid || quota.value,
       date: quota.paymentDate || quota.updatedAt,

@@ -38,6 +38,7 @@ const quotaSchema = new mongoose.Schema({
   paymentObservations: String,
   amountPaid: Number,
   receiptUrl: String,
+  receiptNumber: { type: Number, index: true },
   excelRowId: Number,
 }, { timestamps: true });
 
@@ -46,5 +47,6 @@ quotaSchema.index({ contract: 1 });
 quotaSchema.index({ status: 1 });
 quotaSchema.index({ dueDate: 1 });
 quotaSchema.index({ companyId: 1, status: 1, dueDate: 1 });
+quotaSchema.index({ companyId: 1, receiptNumber: 1 });
 
 export default mongoose.model('Quota', quotaSchema);
