@@ -315,7 +315,7 @@ export const getMyPayments = async (req, res, next) => {
 export const reportPortalPayment = async (req, res, next) => {
   try {
     const { clientId, tenantId } = req.user;
-    const { contractId, cuotaNumber, amount, banco, paymentMethod, fechaPago } = req.body;
+    const { contractId, cuotaNumber, amount, banco, paymentMethod, fechaPago, paymentType } = req.body;
     const file = req.file;
 
     if (!clientId) {
@@ -351,6 +351,12 @@ export const reportPortalPayment = async (req, res, next) => {
     const targetDate = fechaPago ? new Date(fechaPago) : new Date();
     const paymentAmount = parseFloat(amount);
 
+    // Tipo de pago seleccionado por el cliente: TOTAL / MINIMO / OTRO (o PARCIAL si no llega)
+    const VALID_PAYMENT_TYPES = ['TOTAL', 'MINIMO', 'OTRO'];
+    const normalizedPaymentType = VALID_PAYMENT_TYPES.includes(String(paymentType || '').toUpperCase())
+      ? String(paymentType).toUpperCase()
+      : (paymentAmount >= (quota.value - (quota.amountPaid || 0)) ? 'TOTAL' : 'PARCIAL');
+
     const attempt = await PaymentAttempt.create({
       tenantId,
       companyId: contract.companyId,
@@ -361,6 +367,8 @@ export const reportPortalPayment = async (req, res, next) => {
         amount: paymentAmount
       }],
       amount: paymentAmount,
+      paymentType: normalizedPaymentType,
+      quotaValue: quota.value,
       banco,
       paymentMethod,
       fechaPago: targetDate,

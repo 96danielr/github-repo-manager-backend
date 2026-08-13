@@ -321,7 +321,7 @@ export const getClientInfo = async (req, res, next) => {
  */
 export const reportPayment = async (req, res, next) => {
   try {
-    const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod, phone, email, otpToken } = req.body;
+    const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod, phone, email, otpToken, paymentType } = req.body;
     
     if (bank === 'Cruce de cuentas' || paymentMethod === 'Cruce de cuentas') {
       return next(new AppError('No tienes permiso para reportar pagos con cruce de cuentas', 403));
@@ -400,6 +400,12 @@ export const reportPayment = async (req, res, next) => {
 
     const paymentAmount = parseFloat(amount) || quota.value;
 
+    // Tipo de pago seleccionado por el cliente: TOTAL / MINIMO / OTRO (o PARCIAL si no llega)
+    const VALID_PAYMENT_TYPES = ['TOTAL', 'MINIMO', 'OTRO'];
+    const normalizedPaymentType = VALID_PAYMENT_TYPES.includes(String(paymentType || '').toUpperCase())
+      ? String(paymentType).toUpperCase()
+      : (paymentAmount >= (quota.value - (quota.amountPaid || 0)) ? 'TOTAL' : 'PARCIAL');
+
     const attempt = await PaymentAttempt.create({
       tenantId: quota.tenantId,
       companyId: quota.companyId,
@@ -410,6 +416,8 @@ export const reportPayment = async (req, res, next) => {
         amount: paymentAmount
       }],
       amount: paymentAmount,
+      paymentType: normalizedPaymentType,
+      quotaValue: quota.value,
       banco: bank,
       paymentMethod,
       fechaPago: targetDate,

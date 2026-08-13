@@ -151,7 +151,7 @@ export const getPayments = async (req, res, next) => {
         },
       })
       .populate('clientId', 'name idNumber phone')
-      .populate('quotas.quotaId', 'number type receiptUrl receiptNumber')
+      .populate('quotas.quotaId', 'number type receiptUrl receiptNumber value')
       .sort(sortObj)
       .skip(skip)
       .limit(limitNum)
@@ -166,6 +166,8 @@ export const getPayments = async (req, res, next) => {
         cuotaNumber: firstQuota?.number || 0,
         receiptNumber: qObj.receiptNumber || firstQuota?.receiptNumber || null,
         amount: qObj.amount || 0,
+        paymentType: qObj.paymentType || 'TOTAL',
+        quotaValue: qObj.quotaValue || firstQuota?.value || null,
         banco: qObj.banco || 'N/A',
         fechaPago: qObj.fechaPago || qObj.createdAt,
         comprobante: qObj.comprobante || null,
@@ -497,7 +499,7 @@ export const rejectPayment = async (req, res, next) => {
 export const registerManualPayment = async (req, res, next) => {
   try {
     const { tenantId, companyId, role } = req.user;
-    const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod } = req.body;
+    const { quotaId, amount, bank, observations, paymentDate, fechaPago, paymentMethod, paymentOption } = req.body;
 
     const isAdmin = ['superadmin', 'tenant_admin', 'company_admin', 'administrador'].includes(role);
     if ((bank === 'Cruce de cuentas' || paymentMethod === 'Cruce de cuentas') && !isAdmin) {
@@ -668,6 +670,7 @@ export const registerManualPayment = async (req, res, next) => {
     // Immediately create the PaymentAttempt as approved
     try {
       const contract = await Contract.findById(quota.contract);
+      const OPTION_TO_TYPE = { minimo: 'MINIMO', total: 'TOTAL', otro: 'OTRO' };
       await PaymentAttempt.create({
         tenantId,
         companyId,
@@ -675,6 +678,8 @@ export const registerManualPayment = async (req, res, next) => {
         clientId: contract.client,
         quotas: quotasToRecord,
         amount: paidAmount,
+        paymentType: OPTION_TO_TYPE[paymentOption] || (paidAmount >= quotaPendingValue ? 'TOTAL' : 'PARCIAL'),
+        quotaValue: quota.value,
         banco: bank || 'Efectivo',
         paymentMethod: paymentMethod || 'Efectivo',
         fechaPago: finalPaymentDate,

@@ -40,6 +40,24 @@ const paymentAttemptSchema = new mongoose.Schema({
     type: Number,
     required: true,
   },
+  // Tipo de pago seleccionado por el cliente/asesor al reportar:
+  // TOTAL = paga el valor completo de la cuota, MINIMO = pago mínimo ofrecido,
+  // OTRO = monto libre, PARCIAL = abono menor al valor de la cuota
+  paymentType: {
+    type: String,
+    enum: {
+      values: ['TOTAL', 'MINIMO', 'OTRO', 'PARCIAL'],
+      message: 'Tipo de pago no válido',
+    },
+    default: 'TOTAL',
+    index: true,
+  },
+  // Valor total de la cuota objetivo en el momento del reporte.
+  // Trazabilidad física: permite saber qué era "el total" cuando el cliente reportó,
+  // sin depender del valor actual de la cuota (puede cambiar por reestructuración).
+  quotaValue: {
+    type: Number,
+  },
   banco: {
     type: String,
     required: true,

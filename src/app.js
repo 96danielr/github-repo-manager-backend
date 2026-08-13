@@ -28,6 +28,8 @@ import auditRoutes from './routes/audit.routes.js';
 import bonusRoutes from './routes/bonus.routes.js';
 import paymentScheduleRoutes from './routes/paymentSchedule.routes.js';
 import aiAgentToolRoutes from './routes/ai.routes.js';
+import knowledgeRoutes from './routes/knowledge.routes.js';
+import escalationRoutes from './routes/escalation.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 import connectDB from './config/database.js';
 
@@ -163,6 +165,8 @@ app.use('/api/public', publicRoutes);
 app.use('/api/banks', bankRoutes);
 app.use('/api/ai', aiAgentToolRoutes);
 app.use('/api/ai', aiChatRoutes);
+app.use('/api/knowledge', knowledgeRoutes);
+app.use('/api/escalations', escalationRoutes);
 app.use('/api/portal', portalRoutes);
 app.use('/api/limits', limitRoutes);
 app.use('/api/whatsapp', whatsappRoutes);
