@@ -108,6 +108,27 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
     const totalSalesCount = await Contract.countDocuments(baseMatch);
     const teamMembersCount = await User.countDocuments({ tenantId, status: 'active' });
 
+    // Sales this month (scoped to the seller's own contracts for seller roles)
+    const isSellerRole = role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent';
+    const salesThisMonthAgg = await Contract.aggregate([
+      {
+        $match: {
+          tenantId: new mongoose.Types.ObjectId(tenantId),
+          companyId: new mongoose.Types.ObjectId(companyId),
+          contractDate: { $gte: startOfMonth, $lte: endOfMonth },
+          ...(isSellerRole ? { sellerId: new mongoose.Types.ObjectId(userId) } : {}),
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          ventas: { $sum: 1 },
+          valorVendido: { $sum: { $ifNull: ['$totalValue', 0] } },
+        },
+      },
+    ]);
+    const salesThisMonth = salesThisMonthAgg[0] || { ventas: 0, valorVendido: 0 };
+
     // 2. Lot Statistics
     const separatedLots = await Lot.countDocuments({ ...baseMatch, status: 'separado' });
     const soldLots = await Lot.countDocuments({ ...baseMatch, status: 'vendido' });
@@ -151,7 +172,11 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
         totalClients: totalClientsCount,
         totalSales: totalSalesCount,
         teamMembers: teamMembersCount,
-        isSeller: role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent',
+        isSeller: isSellerRole,
+        salesThisMonth: {
+          count: salesThisMonth.ventas,
+          valorVendido: Math.round(salesThisMonth.valorVendido),
+        },
         cartera: {
           valorTotalCartera: Math.round(result.valorTotalCartera),
           totalRecaudado: Math.round(result.totalRecaudado),

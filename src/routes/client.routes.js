@@ -183,6 +183,27 @@ router.get('/', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_VIEW), a
 
     const clients = await Client.aggregate(aggregatePipeline);
 
+    // Enrich each client with its advisors (derived from Contract.sellerId)
+    const sellerIds = [...new Set(
+      clients.flatMap((c) => (c.contracts || []).map((ct) => ct.sellerId?.toString()).filter(Boolean))
+    )];
+    if (sellerIds.length > 0) {
+      const sellerUsers = await User.find({ _id: { $in: sellerIds } }).populate({
+        path: 'accountId',
+        select: 'fullName',
+      });
+      const sellerMap = new Map(sellerUsers.map((u) => [u._id.toString(), u.accountId?.fullName || 'N/A']));
+      clients.forEach((c) => {
+        c.sellerNames = [...new Set(
+          (c.contracts || [])
+            .map((ct) => sellerMap.get(ct.sellerId?.toString()))
+            .filter(Boolean)
+        )];
+      });
+    } else {
+      clients.forEach((c) => { c.sellerNames = []; });
+    }
+
     res.json({
       success: true,
       data: {
@@ -221,7 +242,13 @@ router.get('/:id', companyMiddleware, checkPermission(PERMISSIONS.CLIENTES_DETAI
     }
 
     // Get contracts for this client
-    const contracts = await Contract.find({ client: id, tenantId, companyId }).populate('lot');
+    const contracts = await Contract.find({ client: id, tenantId, companyId })
+      .populate('lot')
+      .populate({
+        path: 'sellerId',
+        select: 'accountId',
+        populate: { path: 'accountId', select: 'fullName email' },
+      });
     
     // For each contract, get stats
     const contractsWithStats = await Promise.all(contracts.map(async (contract) => {

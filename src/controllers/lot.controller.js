@@ -500,6 +500,14 @@ export const sellLot = async (req, res, next) => {
       status: 'ACTIVO',
     });
 
+    // 3.1 Create Commission if the company has an active commission plan
+    try {
+      const { buildCommissionForContract } = await import('../services/commission.service.js');
+      await buildCommissionForContract({ contract, tenantId, companyId });
+    } catch (commissionError) {
+      console.error('[SELL_LOT][COMMISSION] Error al crear comisión:', commissionError);
+    }
+
 
     // 4. Mark Lot as Sold
     lot.status = 'vendido';

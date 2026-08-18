@@ -5,6 +5,8 @@ import User from '../models/User.js';
 import Company from '../models/Company.js';
 import Quota from '../models/Quota.js';
 import Client from '../models/Client.js';
+import Commission from '../models/Commission.js';
+import AppError from '../utils/AppError.js';
 
 /**
  * Generates a sales report including monthly sales, top advisor, 
@@ -442,6 +444,195 @@ export const getAdvancedReports = async (req, res, next) => {
         delinquentClients,
         bestClients
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Sales report per advisor: sales, amounts sold, and collection on those sales.
+ * Supports optional from/to date range (default: current month).
+ */
+export const getAdvisorReport = async (req, res, next) => {
+  try {
+    const { tenantId, companyId } = req.user;
+    const { from, to } = req.query;
+
+    const now = new Date();
+    const startPeriod = from ? new Date(from) : new Date(now.getFullYear(), now.getMonth(), 1);
+    let endPeriod = to ? new Date(to) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    if (Number.isNaN(startPeriod.getTime())) {
+      return next(new AppError('Fecha inicial inválida', 400));
+    }
+    if (Number.isNaN(endPeriod.getTime())) {
+      return next(new AppError('Fecha final inválida', 400));
+    }
+    if (endPeriod < startPeriod) {
+      return next(new AppError('La fecha final no puede ser anterior a la inicial', 400));
+    }
+    // Include the whole "to" day
+    endPeriod = new Date(endPeriod);
+    endPeriod.setHours(23, 59, 59, 999);
+
+    // 1. Sales per advisor in the period
+    const contractAgg = await Contract.aggregate([
+      {
+        $match: {
+          tenantId: new mongoose.Types.ObjectId(tenantId),
+          companyId: new mongoose.Types.ObjectId(companyId),
+          contractDate: { $gte: startPeriod, $lte: endPeriod },
+        },
+      },
+      {
+        $group: {
+          _id: '$sellerId',
+          ventas: { $sum: 1 },
+          valorVendido: { $sum: { $ifNull: ['$totalValue', 0] } },
+        },
+      },
+    ]);
+
+    const sellerIds = contractAgg.map((c) => c._id).filter(Boolean);
+
+    // 2. Collection per advisor over the same contracts
+    const quotaAgg = await Quota.aggregate([
+      {
+        $match: {
+          tenantId: new mongoose.Types.ObjectId(tenantId),
+          companyId: new mongoose.Types.ObjectId(companyId),
+        },
+      },
+      {
+        $lookup: {
+          from: 'contracts',
+          localField: 'contract',
+          foreignField: '_id',
+          as: 'contractData',
+        },
+      },
+      { $unwind: '$contractData' },
+      { $match: { 'contractData.sellerId': { $in: sellerIds } } },
+      {
+        $group: {
+          _id: '$contractData.sellerId',
+          recaudo: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'pagado'] }, { $ifNull: ['$amountPaid', '$value'] }, 0],
+            },
+          },
+          recaudoInicial: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$status', 'pagado'] }, { $eq: ['$type', 'inicial'] }] },
+                { $ifNull: ['$amountPaid', '$value'] },
+                0,
+              ],
+            },
+          },
+          valorInicialTotal: {
+            $sum: { $cond: [{ $eq: ['$type', 'inicial'] }, '$value', 0] },
+          },
+        },
+      },
+    ]);
+
+    const quotaBySeller = new Map(quotaAgg.map((q) => [q._id?.toString(), q]));
+
+    // 2B. Commission progress per advisor (for the sales of the period)
+    const contractIds = await Contract.distinct('_id', {
+      tenantId,
+      companyId,
+      contractDate: { $gte: startPeriod, $lte: endPeriod },
+    });
+    const commissionAgg = await Commission.aggregate([
+      {
+        $match: {
+          tenantId: new mongoose.Types.ObjectId(tenantId),
+          companyId: new mongoose.Types.ObjectId(companyId),
+          contractId: { $in: contractIds },
+        },
+      },
+      { $unwind: '$installments' },
+      {
+        $group: {
+          _id: '$sellerId',
+          comisionGenerada: { $sum: '$installments.amount' },
+          comisionDisponible: {
+            $sum: { $cond: [{ $eq: ['$installments.status', 'AVAILABLE'] }, '$installments.amount', 0] },
+          },
+          comisionRadicada: {
+            $sum: { $cond: [{ $eq: ['$installments.status', 'FILED'] }, '$installments.amount', 0] },
+          },
+          comisionAprobada: {
+            $sum: { $cond: [{ $eq: ['$installments.status', 'APPROVED'] }, '$installments.amount', 0] },
+          },
+          comisionPagada: {
+            $sum: { $cond: [{ $eq: ['$installments.status', 'PAID'] }, '$installments.amount', 0] },
+          },
+        },
+      },
+    ]);
+    const commissionBySeller = new Map(commissionAgg.map((c) => [c._id?.toString(), c]));
+
+    // 3. Advisor names
+    const advisorUsers = await User.find({ _id: { $in: sellerIds }, tenantId }).populate({
+      path: 'accountId',
+      select: 'fullName email',
+    });
+    const advisorMap = new Map(advisorUsers.map((u) => [u._id.toString(), u]));
+
+    // 4. Build rows (contracts without sellerId appear as "Sin asesor")
+    const advisors = contractAgg
+      .map((item) => {
+        const quota = quotaBySeller.get(item._id?.toString()) || {};
+        const commission = commissionBySeller.get(item._id?.toString()) || {};
+        const advisor = item._id ? advisorMap.get(item._id.toString()) : null;
+        return {
+          advisorId: item._id,
+          name: advisor?.accountId?.fullName || 'Sin asesor',
+          email: advisor?.accountId?.email || '',
+          ventas: item.ventas,
+          valorVendido: Math.round(item.valorVendido),
+          recaudo: Math.round(quota.recaudo || 0),
+          recaudoInicial: Math.round(quota.recaudoInicial || 0),
+          valorInicialTotal: Math.round(quota.valorInicialTotal || 0),
+          comisionGenerada: Math.round(commission.comisionGenerada || 0),
+          comisionDisponible: Math.round(commission.comisionDisponible || 0),
+          comisionRadicada: Math.round(commission.comisionRadicada || 0),
+          comisionAprobada: Math.round(commission.comisionAprobada || 0),
+          comisionPagada: Math.round(commission.comisionPagada || 0),
+        };
+      })
+      .sort((a, b) => b.valorVendido - a.valorVendido);
+
+    const totals = advisors.reduce(
+      (acc, a) => {
+        acc.ventas += a.ventas;
+        acc.valorVendido += a.valorVendido;
+        acc.recaudo += a.recaudo;
+        acc.recaudoInicial += a.recaudoInicial;
+        acc.valorInicialTotal += a.valorInicialTotal;
+        acc.comisionGenerada += a.comisionGenerada;
+        acc.comisionDisponible += a.comisionDisponible;
+        acc.comisionRadicada += a.comisionRadicada;
+        acc.comisionAprobada += a.comisionAprobada;
+        acc.comisionPagada += a.comisionPagada;
+        return acc;
+      },
+      { ventas: 0, valorVendido: 0, recaudo: 0, recaudoInicial: 0, valorInicialTotal: 0,
+        comisionGenerada: 0, comisionDisponible: 0, comisionRadicada: 0, comisionAprobada: 0, comisionPagada: 0 }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        advisors,
+        totals,
+        from: startPeriod,
+        to: endPeriod,
+      },
     });
   } catch (error) {
     next(error);

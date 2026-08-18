@@ -410,6 +410,17 @@ export const approvePayment = async (req, res, next) => {
     attempt.approvedAt = new Date();
     await attempt.save();
 
+    // Evaluate commission milestones (comisiones Fase 3)
+    try {
+      const { evaluateCommissionMilestones } = await import('../services/commission.service.js');
+      const affectedContractIds = await Quota.distinct('contract', { _id: { $in: paidQuotasAccumulator } });
+      for (const contractId of affectedContractIds) {
+        await evaluateCommissionMilestones({ contractId, tenantId, companyId });
+      }
+    } catch (commissionError) {
+      console.error('[LOG][APPROVE_PAYMENT] Error evaluando hitos de comisión:', commissionError);
+    }
+
     // Send notifications
     try {
       const { sendConsolidatedPaymentNotifications } = await import('../utils/consolidatedNotifications.js');

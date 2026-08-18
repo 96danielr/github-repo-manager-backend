@@ -1,5 +1,5 @@
 import express from 'express';
-import { getSalesReport, getCashFlowProjection, getAdvancedReports } from '../controllers/report.controller.js';
+import { getSalesReport, getCashFlowProjection, getAdvancedReports, getAdvisorReport } from '../controllers/report.controller.js';
 import { protect, checkPermission } from '../middleware/auth.js';
 import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
@@ -14,5 +14,6 @@ router.use(companyMiddleware);
 router.get('/sales', checkPermission(PERMISSIONS.REPORTES_VIEW), getSalesReport);
 router.get('/projection', checkPermission(PERMISSIONS.REPORTES_VIEW), getCashFlowProjection);
 router.get('/advanced', checkPermission(PERMISSIONS.REPORTES_VIEW), getAdvancedReports);
+router.get('/advisors', checkPermission(PERMISSIONS.REPORTES_VIEW), getAdvisorReport);
 
 export default router;

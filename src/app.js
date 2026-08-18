@@ -30,6 +30,8 @@ import paymentScheduleRoutes from './routes/paymentSchedule.routes.js';
 import aiAgentToolRoutes from './routes/ai.routes.js';
 import knowledgeRoutes from './routes/knowledge.routes.js';
 import escalationRoutes from './routes/escalation.routes.js';
+import commissionPlanRoutes from './routes/commissionPlan.routes.js';
+import commissionRoutes from './routes/commission.routes.js';
 import errorHandler from './middleware/errorHandler.js';
 import connectDB from './config/database.js';
 
@@ -173,6 +175,8 @@ app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/bonuses', bonusRoutes);
+app.use('/api/commission-plans', commissionPlanRoutes);
+app.use('/api/commissions', commissionRoutes);
 app.use('/api/payment-schedule', paymentScheduleRoutes);
 
 // 404 handler
