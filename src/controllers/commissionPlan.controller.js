@@ -115,6 +115,14 @@ export const createCommissionPlan = async (req, res, next) => {
       ...sanitizePlan(req.body),
     });
 
+    // Retroactively sync contracts with sellers under this new plan
+    try {
+      const { syncRetroactiveCommissions } = await import('../services/commission.service.js');
+      await syncRetroactiveCommissions({ tenantId, companyId });
+    } catch (syncErr) {
+      console.error('[COMMISSION_PLAN] Error auto-syncing commissions:', syncErr);
+    }
+
     res.status(201).json({
       success: true,
       data: { plan },
@@ -149,6 +157,14 @@ export const updateCommissionPlan = async (req, res, next) => {
     plan.milestones = updated.milestones;
     plan.isActive = updated.isActive;
     await plan.save();
+
+    // Retroactively re-sync commissions
+    try {
+      const { syncRetroactiveCommissions } = await import('../services/commission.service.js');
+      await syncRetroactiveCommissions({ tenantId, companyId });
+    } catch (syncErr) {
+      console.error('[COMMISSION_PLAN] Error auto-syncing commissions on update:', syncErr);
+    }
 
     res.json({
       success: true,

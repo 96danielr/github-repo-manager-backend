@@ -833,3 +833,74 @@ export const releaseLot = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * Carga histórica de asesores: vincula un asesor comercial a un contrato/lote ya
+ * vendido (p.ej. Reserva de Alicante). Si el contrato no tiene comisión creada,
+ * la genera y evalúa los hitos ya cumplidos para que el histórico alimente de
+ * inmediato los informes consolidados y el cálculo de comisiones.
+ * POST /lots/:id/assign-seller  { sellerId }
+ */
+export const assignLotSeller = async (req, res, next) => {
+  try {
+    const { tenantId, companyId } = req.user;
+    const { id } = req.params;
+    const { sellerId } = req.body;
+
+    if (!sellerId) {
+      return res.status(400).json({ success: false, message: 'Debe seleccionar un asesor' });
+    }
+
+    const lot = await Lot.findOne({ _id: id, tenantId, companyId });
+    if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
+
+    const contract = await Contract.findOne({ lot: lot._id, tenantId, companyId });
+    if (!contract) {
+      return res.status(400).json({ success: false, message: 'Este lote no tiene un contrato asociado para vincular asesor' });
+    }
+
+    const User = (await import('../models/User.js')).default;
+    const seller = await User.findById(sellerId).populate('accountId');
+    if (!seller) return res.status(400).json({ success: false, message: 'El asesor seleccionado no existe' });
+
+    contract.sellerId = seller._id;
+    await contract.save();
+
+    if (lot.status === 'vendido') {
+      lot.sellerId = seller._id;
+      await lot.save();
+    }
+
+    // Generar comisión si el contrato histórico no tiene una (alimenta comisiones e informes)
+    try {
+      const { buildCommissionForContract, evaluateCommissionMilestones } = await import('../services/commission.service.js');
+      const Commission = (await import('../models/Commission.js')).default;
+      const existing = await Commission.findOne({ contractId: contract._id, tenantId, companyId });
+      if (!existing) {
+        await buildCommissionForContract({ contract, tenantId, companyId });
+      }
+      await evaluateCommissionMilestones({ contractId: contract._id, tenantId, companyId });
+    } catch (commissionError) {
+      console.error('[ASSIGN_SELLER][COMMISSION] Error generando comisión:', commissionError);
+    }
+
+    await logAudit(req, {
+      action: 'ASSIGN_SELLER',
+      module: 'LOTS',
+      targetId: lot._id,
+      details: { contractId: contract._id, sellerId: seller._id }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Asesor vinculado correctamente al contrato del lote ${lot.nomenclature || lot.lotNumber}`,
+      data: {
+        contractId: contract._id,
+        sellerId: seller._id,
+        sellerName: seller.accountId?.fullName || seller.email || 'Asesor',
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

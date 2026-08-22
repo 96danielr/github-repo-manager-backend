@@ -1,5 +1,5 @@
 import express from 'express';
-import { 
+import {
   createLot, 
   getLots, 
   getLot, 
@@ -11,6 +11,7 @@ import {
   getLotSaleDetail,
   reserveLot,
   releaseLot,
+  assignLotSeller,
 } from '../controllers/lot.controller.js';
 import { protect, checkPermission } from '../middleware/auth.js';
 import { PERMISSIONS } from '../config/permissions.js';
@@ -56,6 +57,13 @@ router.post('/:id/release',
   checkPermission(PERMISSIONS.LOTES_RELEASE), 
   validate(releaseLotValidation), 
   releaseLot
+);
+
+// Carga histórica: vincular asesor a contratos/lotes ya vendidos
+router.post('/:id/assign-seller', 
+  companyMiddleware, 
+  checkPermission(PERMISSIONS.LOTES_SALE), 
+  assignLotSeller
 );
 
 router.route('/:id')

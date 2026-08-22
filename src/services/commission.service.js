@@ -2,6 +2,7 @@ import CommissionPlan from '../models/CommissionPlan.js';
 import Commission from '../models/Commission.js';
 import Quota from '../models/Quota.js';
 import User from '../models/User.js';
+import UserAccount from '../models/UserAccount.js';
 import { sendEmail, sendWhatsApp } from '../utils/notifications.js';
 
 const roundMoney = (n) => Math.round(n);
@@ -24,9 +25,14 @@ export const buildCommissionForContract = async ({ contract, tenantId, companyId
   let installments = [];
 
   if (plan.tiers && plan.tiers.length > 0) {
-    const tier = plan.tiers.find((t) => t.initialQuotaPercentage === ciPct);
+    // Regla "30% o más de CI": se elige el tramo con el mayor initialQuotaPercentage
+    // que NO supere el CI del contrato (ej. CI 35% cae en el tramo de 30%).
+    const tiers = plan.tiers
+      .filter((t) => ciPct >= (t.initialQuotaPercentage || 0))
+      .sort((a, b) => (b.initialQuotaPercentage || 0) - (a.initialQuotaPercentage || 0));
+    const tier = tiers[0];
     if (!tier) {
-      console.warn(`[COMMISSION] Plan "${plan.name}" sin tramo para CI ${ciPct}%. No se crea comisión.`);
+      console.warn(`[COMMISSION] Plan "${plan.name}" sin tramo aplicable para CI ${ciPct}%. No se crea comisión.`);
       return null;
     }
     totalAmount = tier.milestones.reduce((sum, m) => sum + (m.amount || 0), 0);
@@ -77,9 +83,8 @@ export const evaluateCommissionMilestones = async ({ contractId, tenantId, compa
 
   const quotas = await Quota.find({ contract: contractId, tenantId, companyId });
 
-  const initialQuotasPaid = quotas
-    .filter((q) => q.type === 'inicial')
-    .every((q) => q.status === 'pagado');
+  const initialQuotas = quotas.filter((q) => q.type === 'inicial');
+  const initialQuotasPaid = initialQuotas.length > 0 && initialQuotas.every((q) => q.status === 'pagado');
   const paidNormalNumbers = new Set(
     quotas
       .filter((q) => q.type === 'normal' && q.status === 'pagado')
@@ -118,6 +123,36 @@ export const evaluateCommissionMilestones = async ({ contractId, tenantId, compa
   return activated;
 };
 
+/**
+ * Synchronizes commissions retroactively for all existing contracts with a seller
+ * that do not have a commission generated yet or need milestone evaluation.
+ */
+export const syncRetroactiveCommissions = async ({ tenantId, companyId }) => {
+  const Contract = (await import('../models/Contract.js')).default;
+  const contracts = await Contract.find({
+    tenantId,
+    companyId,
+    sellerId: { $exists: true, $ne: null },
+  });
+
+  let createdCount = 0;
+  let evaluatedCount = 0;
+
+  for (const contract of contracts) {
+    let commission = await Commission.findOne({ contractId: contract._id, tenantId, companyId });
+    if (!commission) {
+      commission = await buildCommissionForContract({ contract, tenantId, companyId });
+      if (commission) createdCount++;
+    }
+    if (commission) {
+      await evaluateCommissionMilestones({ contractId: contract._id, tenantId, companyId });
+      evaluatedCount++;
+    }
+  }
+
+  return { createdCount, evaluatedCount, totalContracts: contracts.length };
+};
+
 const notifySellerCommissionAvailable = async (commission, activated) => {
   try {
     const seller = await User.findById(commission.sellerId).populate({
@@ -139,3 +174,4 @@ const notifySellerCommissionAvailable = async (commission, activated) => {
     console.error('[COMMISSION] Error notificando comisión disponible:', error);
   }
 };
+

@@ -9,61 +9,178 @@ import Commission from '../models/Commission.js';
 import AppError from '../utils/AppError.js';
 
 /**
- * Generates a sales report including monthly sales, top advisor, 
+ * Helper to compute date ranges
+ */
+const getDateRange = (period, customStart, customEnd) => {
+  const now = new Date();
+  let startPeriod;
+  let endPeriod;
+
+  if (period === 'previous_month') {
+    startPeriod = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    endPeriod = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+  } else if (period === 'last_quarter') {
+    startPeriod = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    endPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  } else if (period === 'custom' && customStart && customEnd) {
+    startPeriod = new Date(customStart);
+    endPeriod = new Date(customEnd);
+    endPeriod.setHours(23, 59, 59, 999);
+  } else {
+    // Current month default
+    startPeriod = new Date(now.getFullYear(), now.getMonth(), 1);
+    endPeriod = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  }
+
+  return { startPeriod, endPeriod };
+};
+
+/**
+ * Generates a sales report including monthly sales, top 3 advisors,
  * reserved lots, and detailed status per stage.
  */
 export const getSalesReport = async (req, res, next) => {
   try {
-    const { tenantId, companyId } = req.user;
+    const { tenantId, companyId, role, userId } = req.user;
+    const { period, startDate, endDate } = req.query;
 
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const { startPeriod, endPeriod } = getDateRange(period, startDate, endDate);
 
-    // 1. Sales this month
-    const salesThisMonth = await Contract.countDocuments({
-      tenantId,
-      companyId,
-      contractDate: { $gte: startOfMonth, $lte: endOfMonth }
-    });
+    const matchQuery = {
+      tenantId: new mongoose.Types.ObjectId(tenantId),
+      companyId: new mongoose.Types.ObjectId(companyId),
+      contractDate: { $gte: startPeriod, $lte: endPeriod },
+    };
 
-    // 2. Top Advisor
-    const topAdvisorAggregate = await Contract.aggregate([
-      { 
-        $match: { 
-          tenantId: new mongoose.Types.ObjectId(tenantId), 
-          companyId: new mongoose.Types.ObjectId(companyId),
-          contractDate: { $gte: startOfMonth, $lte: endOfMonth }
-        } 
-      },
-      { $group: { _id: '$sellerId', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 1 }
-    ]);
-
-    let topAdvisor = null;
-    if (topAdvisorAggregate.length > 0 && topAdvisorAggregate[0]._id) {
-      topAdvisor = await User.findById(topAdvisorAggregate[0]._id)
-        .populate({
-          path: 'accountId',
-          select: 'fullName'
-        });
+    // If commercial role, only show personal sales
+    if (role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent') {
+      matchQuery.sellerId = new mongoose.Types.ObjectId(userId);
     }
 
-    // 3. Separated lots
-    const separatedLots = await Lot.countDocuments({
-      tenantId,
-      companyId,
-      status: 'separado'
+    // 1. Sales count & total value in the period
+    const salesAggregate = await Contract.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: null,
+          count: { $sum: 1 },
+          totalValue: { $sum: { $ifNull: ['$totalValue', 0] } },
+        },
+      },
+    ]);
+
+    const salesInPeriod = salesAggregate.length > 0 ? salesAggregate[0].count : 0;
+    const totalValueInPeriod = salesAggregate.length > 0 ? salesAggregate[0].totalValue : 0;
+
+    // 2. Top 3 Advisors with most sold stage and separated/apartados count
+    // Seller roles only see themselves (personal report)
+    const advisorMatch = {
+      tenantId: new mongoose.Types.ObjectId(tenantId),
+      companyId: new mongoose.Types.ObjectId(companyId),
+      contractDate: { $gte: startPeriod, $lte: endPeriod },
+    };
+    if (matchQuery.sellerId) advisorMatch.sellerId = matchQuery.sellerId;
+
+    const advisorSalesAgg = await Contract.aggregate([
+      { $match: advisorMatch },
+      {
+        $lookup: {
+          from: 'lots',
+          localField: 'lot',
+          foreignField: '_id',
+          as: 'lotData',
+        },
+      },
+      { $unwind: { path: '$lotData', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: {
+            sellerId: '$sellerId',
+            stage: '$lotData.stage',
+          },
+          salesCount: { $sum: 1 },
+          totalSold: { $sum: { $ifNull: ['$totalValue', 0] } },
+        },
+      },
+    ]);
+
+    // Aggregate overall advisor sales
+    const advisorMap = new Map();
+    advisorSalesAgg.forEach((entry) => {
+      const sellerIdStr = entry._id.sellerId ? entry._id.sellerId.toString() : 'sin_asesor';
+      if (!advisorMap.has(sellerIdStr)) {
+        advisorMap.set(sellerIdStr, {
+          sellerId: entry._id.sellerId,
+          salesCount: 0,
+          totalSold: 0,
+          stageCounts: {},
+        });
+      }
+      const item = advisorMap.get(sellerIdStr);
+      item.salesCount += entry.salesCount;
+      item.totalSold += entry.totalSold;
+      if (entry._id.stage) {
+        item.stageCounts[entry._id.stage] = (item.stageCounts[entry._id.stage] || 0) + entry.salesCount;
+      }
     });
 
-    // 4. Detailed lots stats by Stage
+    const advisorList = Array.from(advisorMap.values()).sort((a, b) => b.salesCount - a.salesCount);
+    const top3AdvisorItems = advisorList.slice(0, 3);
+
+    // Fetch user names & lots held in separated/apartado for each advisor
+    const topAdvisors = await Promise.all(
+      top3AdvisorItems.map(async (adv) => {
+        let name = 'Sin asesor';
+        if (adv.sellerId) {
+          const user = await User.findById(adv.sellerId).populate('accountId');
+          name = user?.accountId?.fullName || 'Asesor';
+        }
+
+        // Determine top stage
+        let topStage = 'N/A';
+        let maxStageCount = 0;
+        Object.entries(adv.stageCounts).forEach(([st, cnt]) => {
+          if (cnt > maxStageCount) {
+            maxStageCount = cnt;
+            topStage = st;
+          }
+        });
+
+        // Lots currently in separado or apartado by this seller
+        let separatedCount = 0;
+        let apartadosCount = 0;
+        if (adv.sellerId) {
+          separatedCount = await Lot.countDocuments({ tenantId, companyId, sellerId: adv.sellerId, status: 'separado' });
+          apartadosCount = await Lot.countDocuments({ tenantId, companyId, sellerId: adv.sellerId, status: 'apartado' });
+        }
+
+        return {
+          id: adv.sellerId,
+          name,
+          salesCount: adv.salesCount,
+          totalSold: adv.totalSold,
+          topStage,
+          separatedCount,
+          apartadosCount,
+        };
+      })
+    );
+
+    // 3. Lot general stats: Disponibles, Separados, Apartados, Vendidos
+    const lotCounts = {
+      disponibles: await Lot.countDocuments({ tenantId, companyId, status: 'disponible' }),
+      separados: await Lot.countDocuments({ tenantId, companyId, status: 'separado' }),
+      apartados: await Lot.countDocuments({ tenantId, companyId, status: 'apartado' }),
+      vendidos: await Lot.countDocuments({ tenantId, companyId, status: 'vendido' }),
+    };
+
+    // 4. Detailed lot stats by Stage
     const lotStats = await Lot.aggregate([
-      { 
-        $match: { 
-          tenantId: new mongoose.Types.ObjectId(tenantId), 
-          companyId: new mongoose.Types.ObjectId(companyId) 
-        } 
+      {
+        $match: {
+          tenantId: new mongoose.Types.ObjectId(tenantId),
+          companyId: new mongoose.Types.ObjectId(companyId),
+        },
       },
       {
         $group: {
@@ -73,7 +190,7 @@ export const getSalesReport = async (req, res, next) => {
           disponibles: { $sum: { $cond: [{ $eq: ['$status', 'disponible'] }, 1, 0] } },
           separados: { $sum: { $cond: [{ $eq: ['$status', 'separado'] }, 1, 0] } },
           apartados: { $sum: { $cond: [{ $eq: ['$status', 'apartado'] }, 1, 0] } },
-        }
+        },
       },
       {
         $project: {
@@ -87,32 +204,33 @@ export const getSalesReport = async (req, res, next) => {
             $cond: [
               { $gt: ['$total', 0] },
               { $multiply: [{ $divide: ['$vendidos', '$total'] }, 100] },
-              0
-            ]
-          }
-        }
+              0,
+            ],
+          },
+        },
       },
-      { $sort: { stage: 1 } }
+      { $sort: { stage: 1 } },
     ]);
 
-    // Get project name
     const company = await Company.findById(companyId).select('name');
 
     res.status(200).json({
       success: true,
       data: {
-        salesThisMonth,
-        topAdvisor: topAdvisor ? {
-          id: topAdvisor._id,
-          name: topAdvisor.accountId?.fullName || 'N/A',
-          count: topAdvisorAggregate[0].count
-        } : null,
-        separatedLots,
-        lotStats: lotStats.map(stat => ({
+        period: period || 'current_month',
+        from: startPeriod,
+        to: endPeriod,
+        salesInPeriod,
+        totalValueInPeriod,
+        topAdvisors,
+        topAdvisor: topAdvisors.length > 0 ? topAdvisors[0] : null,
+        lotCounts,
+        separatedLots: lotCounts.separados,
+        lotStats: lotStats.map((stat) => ({
           ...stat,
-          projectName: company ? company.name : 'Proyecto Desconocido'
-        }))
-      }
+          projectName: company ? company.name : 'Proyecto',
+        })),
+      },
     });
   } catch (error) {
     next(error);
@@ -284,6 +402,39 @@ export const getAdvancedReports = async (req, res, next) => {
     };
 
     // ==========================================
+    // 1C. RECAUDOS POR MEDIO DE PAGO & PORCENTAJE DE NO PAGO (En el período)
+    // ==========================================
+    const bankBreakdownAgg = await Quota.aggregate([
+      {
+        $match: {
+          tenantId: new mongoose.Types.ObjectId(tenantId),
+          companyId: new mongoose.Types.ObjectId(companyId),
+          status: 'pagado',
+          paymentDate: { $gte: startInterval, $lte: endInterval },
+        },
+      },
+      {
+        $group: {
+          _id: { $ifNull: ['$paymentBank', 'Efectivo / No especificado'] },
+          totalAmount: { $sum: { $ifNull: ['$amountPaid', '$value'] } },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { totalAmount: -1 } },
+    ]);
+
+    // Expected in period
+    const expectedInPeriodQuotas = await Quota.find({
+      tenantId,
+      companyId,
+      dueDate: { $gte: startInterval, $lte: endInterval },
+    });
+    const expectedInPeriod = expectedInPeriodQuotas.reduce((sum, q) => sum + q.value, 0);
+    const nonPaymentRate = expectedInPeriod > 0
+      ? Math.max(0, Math.round(((expectedInPeriod - collectedInterval) / expectedInPeriod) * 100))
+      : 0;
+
+    // ==========================================
     // 2. ESPERADO VS RECAUDADO POR MES (Expected vs. Real Revenue)
     // ==========================================
     // We look at the last 6 months
@@ -440,10 +591,132 @@ export const getAdvancedReports = async (req, res, next) => {
         aging,
         carteraAlDia,
         recaudos,
+        expectedInPeriod,
+        nonPaymentRate,
+        bankBreakdown: bankBreakdownAgg.map((b) => ({
+          bank: b._id,
+          amount: b.totalAmount,
+          count: b.count,
+        })),
         comparison,
         delinquentClients,
-        bestClients
+        bestClients,
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Detailed Lots Report: All lots classified by 9 status categories
+ */
+export const getLotsReport = async (req, res, next) => {
+  try {
+    const { tenantId, companyId } = req.user;
+
+    const lots = await Lot.find({ tenantId, companyId })
+      .populate('sellerId', { path: 'accountId', select: 'fullName' })
+      .populate('reservationBy', 'name idNumber')
+      .sort({ stage: 1, manzana: 1, lotNumber: 1 });
+
+    const contracts = await Contract.find({ tenantId, companyId })
+      .populate('client', 'name idNumber phone')
+      .populate('lot', 'nomenclature stage manzana lotNumber status')
+      .populate({ path: 'sellerId', select: 'accountId', populate: { path: 'accountId', select: 'fullName' } });
+
+    const contractMapByLotId = new Map();
+    contracts.forEach((c) => {
+      if (c.lot) contractMapByLotId.set(c.lot._id ? c.lot._id.toString() : c.lot.toString(), c);
+    });
+
+    // Real "pagado en su totalidad": all quotas of the contract are paid
+    const contractIds = contracts.map((c) => c._id);
+    const paidContractIds = new Set();
+    if (contractIds.length > 0) {
+      const quotas = await Quota.find({ contract: { $in: contractIds }, tenantId, companyId }).select('contract status');
+      const quotaCountByContract = new Map();
+      const paidCountByContract = new Map();
+      quotas.forEach((q) => {
+        const key = q.contract.toString();
+        quotaCountByContract.set(key, (quotaCountByContract.get(key) || 0) + 1);
+        if (q.status === 'pagado') paidCountByContract.set(key, (paidCountByContract.get(key) || 0) + 1);
+      });
+      quotaCountByContract.forEach((total, key) => {
+        if (total > 0 && paidCountByContract.get(key) === total) paidContractIds.add(key);
+      });
+    }
+
+    // Classify counts into the specific categories
+    const summary = {
+      total: lots.length,
+      vendido: 0,
+      disponible: 0,
+      separado: 0,
+      apartado: 0,
+      pagadoTotalidad: 0,
+      enEscrituracion: 0,
+      conPazYSalvo: 0,
+      enRequerimiento: 0,
+      enNegociacion: 0,
+    };
+
+    const classifiedLots = lots.map((l) => {
+      const contract = contractMapByLotId.get(l._id.toString());
+      let stateCategory = l.status || 'disponible';
+
+      if (contract) {
+        const negotiation = (contract.negotiation || '').trim();
+        if (contract.juridicalRequirement || contract.status === 'REQUERIMIENTO') {
+          stateCategory = 'en_requerimiento';
+        } else if (negotiation && negotiation !== 'Venta Directa') {
+          stateCategory = 'en_negociacion';
+        } else if (contract.status === 'ESCRITURACION') {
+          stateCategory = 'en_escrituracion';
+        } else if (contract.status === 'PAZ_Y_SALVO') {
+          stateCategory = 'con_paz_y_salvo';
+        } else if (contract.status === 'PAGADO_TOTAL' || contract.status === 'PAGADO') {
+          stateCategory = 'pagado_totalidad';
+        } else if (paidContractIds.has(contract._id.toString())) {
+          stateCategory = 'pagado_totalidad';
+        } else if (l.status === 'vendido') {
+          stateCategory = 'vendido';
+        }
+      }
+
+      if (stateCategory === 'vendido') summary.vendido += 1;
+      else if (stateCategory === 'disponible') summary.disponible += 1;
+      else if (stateCategory === 'separado') summary.separado += 1;
+      else if (stateCategory === 'apartado') summary.apartado += 1;
+      else if (stateCategory === 'pagado_totalidad') summary.pagadoTotalidad += 1;
+      else if (stateCategory === 'en_escrituracion') summary.enEscrituracion += 1;
+      else if (stateCategory === 'con_paz_y_salvo') summary.conPazYSalvo += 1;
+      else if (stateCategory === 'en_requerimiento') summary.enRequerimiento += 1;
+      else if (stateCategory === 'en_negociacion') summary.enNegociacion += 1;
+      else summary.disponible += 1;
+
+      const contractSellerName = contract?.sellerId?.accountId?.fullName;
+      return {
+        _id: l._id,
+        nomenclature: l.nomenclature,
+        stage: l.stage,
+        manzana: l.manzana,
+        lotNumber: l.lotNumber,
+        area: l.area,
+        price: l.price,
+        status: l.status,
+        stateCategory,
+        client: contract?.client?.name || l.reservationBy?.name || 'N/A',
+        seller: contractSellerName || contract?.commercial || l.sellerId?.accountId?.fullName || 'N/A',
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary,
+        lots: classifiedLots,
+      },
     });
   } catch (error) {
     next(error);
@@ -456,7 +729,7 @@ export const getAdvancedReports = async (req, res, next) => {
  */
 export const getAdvisorReport = async (req, res, next) => {
   try {
-    const { tenantId, companyId } = req.user;
+    const { tenantId, companyId, role, userId } = req.user;
     const { from, to } = req.query;
 
     const now = new Date();
@@ -476,14 +749,20 @@ export const getAdvisorReport = async (req, res, next) => {
     endPeriod = new Date(endPeriod);
     endPeriod.setHours(23, 59, 59, 999);
 
+    const contractMatch = {
+      tenantId: new mongoose.Types.ObjectId(tenantId),
+      companyId: new mongoose.Types.ObjectId(companyId),
+      contractDate: { $gte: startPeriod, $lte: endPeriod },
+    };
+    // Seller roles only see their own rows (personal report)
+    if (['ejecutivo_comercial', 'vendedor', 'agent'].includes(role)) {
+      contractMatch.sellerId = new mongoose.Types.ObjectId(userId);
+    }
+
     // 1. Sales per advisor in the period
     const contractAgg = await Contract.aggregate([
       {
-        $match: {
-          tenantId: new mongoose.Types.ObjectId(tenantId),
-          companyId: new mongoose.Types.ObjectId(companyId),
-          contractDate: { $gte: startPeriod, $lte: endPeriod },
-        },
+        $match: contractMatch,
       },
       {
         $group: {
@@ -496,12 +775,13 @@ export const getAdvisorReport = async (req, res, next) => {
 
     const sellerIds = contractAgg.map((c) => c._id).filter(Boolean);
 
-    // 2. Collection per advisor over the same contracts
+    // 2. Collection per advisor over the same contracts (only payments within the period)
     const quotaAgg = await Quota.aggregate([
       {
         $match: {
           tenantId: new mongoose.Types.ObjectId(tenantId),
           companyId: new mongoose.Types.ObjectId(companyId),
+          paymentDate: { $gte: startPeriod, $lte: endPeriod },
         },
       },
       {

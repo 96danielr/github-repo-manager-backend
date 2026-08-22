@@ -3,6 +3,27 @@ import User from '../models/User.js';
 import AppError from '../utils/AppError.js';
 import { getNextSequence } from '../models/Counter.js';
 import { sendEmail, sendWhatsApp } from '../utils/notifications.js';
+import { uploadToR2 } from '../utils/storage.js';
+
+// POST /commissions/upload-support — uploads a support document (PDF or image) to Cloudflare R2
+export const uploadCommissionSupport = async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return next(new AppError('No se subió ningún archivo', 400));
+    }
+    const { type } = req.body; // 'invoice', 'social_security', 'rut', 'bank_cert'
+    const folder = `commissions/${type || 'soportes'}`;
+    const fileUrl = await uploadToR2(file, folder);
+
+    res.json({
+      success: true,
+      data: { url: fileUrl },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 // GET /commissions — list commissions with filters.
 // Seller roles only see their own commissions.
@@ -10,6 +31,14 @@ export const getCommissions = async (req, res, next) => {
   try {
     const { tenantId, companyId, role, userId } = req.user;
     const { status, contractId, sellerId } = req.query;
+
+    // Auto-sync any contract with seller that doesn't have commission materialized yet
+    try {
+      const { syncRetroactiveCommissions } = await import('../services/commission.service.js');
+      await syncRetroactiveCommissions({ tenantId, companyId });
+    } catch (syncErr) {
+      console.error('[COMMISSIONS] Auto-sync error:', syncErr);
+    }
 
     const filter = { tenantId, companyId };
     if (role === 'vendedor' || role === 'ejecutivo_comercial' || role === 'agent') {
@@ -100,7 +129,14 @@ export const radicarComision = async (req, res, next) => {
   try {
     const { tenantId, companyId, role, userId } = req.user;
     const { id } = req.params;
-    const { installmentIndex } = req.body;
+    const {
+      installmentIndex,
+      invoiceUrl,
+      socialSecurityUrl,
+      rutUrl,
+      bankCertUrl,
+      attachmentUrl,
+    } = req.body;
 
     const commission = await Commission.findOne({ _id: id, tenantId, companyId });
     if (!commission) return next(new AppError('Comisión no encontrada', 404));
@@ -119,24 +155,95 @@ export const radicarComision = async (req, res, next) => {
       return next(new AppError('Solo se pueden radicar desembolsos disponibles', 400));
     }
 
+    // Require the 4 mandatory support documents (plan maestro: cuenta de cobro, seguridad social, RUT y certificación bancaria)
+    const resolvedInvoice = invoiceUrl || attachmentUrl;
+    if (!resolvedInvoice) {
+      return next(new AppError('La Cuenta de Cobro o Factura Electrónica es obligatoria', 400));
+    }
+    if (!socialSecurityUrl) {
+      return next(new AppError('La Planilla de Seguridad Social es obligatoria para radicar', 400));
+    }
+    if (!rutUrl) {
+      return next(new AppError('El RUT vigente es obligatorio para radicar', 400));
+    }
+    if (!bankCertUrl) {
+      return next(new AppError('La Certificación Bancaria es obligatoria para radicar', 400));
+    }
+
+    const billingSeq = await getNextSequence(companyId, tenantId, 'BILLING');
+    const now = new Date();
+
+    // Fetch seller details for stamping
+    const sellerUser = await User.findById(commission.sellerId).populate('accountId');
+    const sellerName = sellerUser?.accountId?.fullName || 'Asesor Comercial';
+    const sellerDoc = sellerUser?.accountId?.idNumber || sellerUser?.accountId?.cedula || 'N/A';
+    const milestoneLabel = installment.milestoneKey === 'INITIAL_QUOTA'
+      ? 'Comisión Cuota Inicial'
+      : `Comisión Cuota #${installment.quotaNumber || 6}`;
+
     installment.status = 'FILED';
-    installment.filedAt = new Date();
+    installment.filedAt = now;
     installment.filedBy = userId;
-    installment.billingNumber = await getNextSequence(companyId, tenantId, 'BILLING');
+    installment.billingNumber = billingSeq;
+    installment.attachmentUrl = resolvedInvoice;
+    installment.invoiceUrl = resolvedInvoice;
+    installment.socialSecurityUrl = socialSecurityUrl || '';
+    installment.rutUrl = rutUrl || '';
+    installment.bankCertUrl = bankCertUrl || '';
+    installment.stampedAt = now;
+    installment.filingSeal = {
+      radNumber: `RAD-${String(billingSeq).padStart(4, '0')}`,
+      stampedAt: now,
+      sellerName,
+      sellerDocument: sellerDoc,
+      amount: installment.amount,
+      milestoneLabel,
+      statusText: 'RECIBIDO / RADICADO',
+    };
     installment.rejectedBy = undefined;
     installment.rejectedAt = undefined;
     installment.rejectedReason = undefined;
     await commission.save();
 
+    // Notify accountants
     await notifyAccountants(
       tenantId,
-      `Se ha radicado una cuenta de cobro por $${installment.amount.toLocaleString('es-CO')} (consecutivo #${installment.billingNumber}). Ingresa al módulo de Comisiones para aprobarla o rechazarla.`,
+      `Se ha radicado la cuenta de cobro #${installment.billingNumber} por $${installment.amount.toLocaleString('es-CO')} de ${sellerName} (${milestoneLabel}). Ingresa al módulo de Comisiones para aprobarla o rechazarla.`,
       `Cuenta de cobro radicada #${installment.billingNumber}`
     );
 
+    // Notify seller with confirmation receipt
+    if (sellerUser?.accountId?.email) {
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b;">
+          <h2 style="color: #0284c7;">Radicado Exitoso de Cuenta de Cobro</h2>
+          <p>Hola <strong>${sellerName}</strong>,</p>
+          <p>Tu cuenta de cobro para <strong>${milestoneLabel}</strong> ha sido radicada correctamente con el siguiente comprobante:</p>
+          <div style="border: 2px dashed #0284c7; background: #f0f9ff; padding: 15px; border-radius: 8px; margin: 15px 0;">
+            <p style="margin: 4px 0;"><strong>No. Radicado:</strong> RAD-${String(billingSeq).padStart(4, '0')}</p>
+            <p style="margin: 4px 0;"><strong>Fecha y Hora:</strong> ${now.toLocaleString('es-CO')}</p>
+            <p style="margin: 4px 0;"><strong>Valor:</strong> $${installment.amount.toLocaleString('es-CO')}</p>
+            <p style="margin: 4px 0;"><strong>Estado:</strong> RECIBIDO</p>
+          </div>
+          <p>Contabilidad y Gerencia revisarán tus 4 soportes adjuntos para procesar el pago.</p>
+        </div>
+      `;
+      await sendEmail(sellerUser.accountId.email, `Confirmación de Radicado #RAD-${String(billingSeq).padStart(4, '0')}`, emailHtml);
+    }
+
+    // Notify seller via WhatsApp (plan maestro: comisiones radicadas por Twilio WhatsApp)
+    if (sellerUser?.accountId?.phone) {
+      const waMessage = `Hola ${sellerName}, tu cuenta de cobro para ${milestoneLabel} fue RADICADA con el No. RAD-${String(billingSeq).padStart(4, '0')} por $${installment.amount.toLocaleString('es-CO')}. Contabilidad revisará tus 4 soportes para procesar el pago.`;
+      try {
+        await sendWhatsApp(sellerUser.accountId.phone, waMessage);
+      } catch (waError) {
+        console.error('[COMMISSION] Error enviando WhatsApp de radicado:', waError);
+      }
+    }
+
     res.json({
       success: true,
-      message: 'Cuenta de cobro radicada exitosamente',
+      message: 'Cuenta de cobro radicada exitosamente con sello de radicado',
       data: { commission },
     });
   } catch (error) {

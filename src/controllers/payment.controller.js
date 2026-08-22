@@ -712,6 +712,14 @@ export const registerManualPayment = async (req, res, next) => {
       console.error('[LOG][REGISTER_MANUAL_PAYMENT] Error sending consolidated notifications:', error);
     }
 
+    // Activate commission milestones after a manual payment (quota inicial or quota #N paid)
+    try {
+      const { evaluateCommissionMilestones } = await import('../services/commission.service.js');
+      await evaluateCommissionMilestones({ contractId: quota.contract, tenantId, companyId });
+    } catch (error) {
+      console.error('[LOG][REGISTER_MANUAL_PAYMENT] Error evaluando hitos de comisión:', error);
+    }
+
     await logAudit(req, {
       action: 'REGISTER_MANUAL_PAYMENT',
       module: 'PAYMENTS',
