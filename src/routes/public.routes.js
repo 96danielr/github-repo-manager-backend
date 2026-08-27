@@ -26,6 +26,7 @@ router.get('/:companySlug/client/:idNumber', getClientInfo);
 router.post('/report-payment', upload.single('capture'), reportPayment);
 
 // Dynamic dynamic receipt generation
+router.get('/receipt/attempt/:attemptId', getReceiptPDF);
 router.get('/receipt/:quotaId', getReceiptPDF);
 router.get('/statement/:contractId', getStatementPDF);
 

@@ -150,8 +150,8 @@ export const getSalesReport = async (req, res, next) => {
         let separatedCount = 0;
         let apartadosCount = 0;
         if (adv.sellerId) {
-          separatedCount = await Lot.countDocuments({ tenantId, companyId, sellerId: adv.sellerId, status: 'separado' });
-          apartadosCount = await Lot.countDocuments({ tenantId, companyId, sellerId: adv.sellerId, status: 'apartado' });
+          separatedCount = await Lot.countDocuments({ tenantId, companyId, sellerId: adv.sellerId, status: 'separado', isDeleted: { $ne: true } });
+          apartadosCount = await Lot.countDocuments({ tenantId, companyId, sellerId: adv.sellerId, status: 'apartado', isDeleted: { $ne: true } });
         }
 
         return {
@@ -168,10 +168,10 @@ export const getSalesReport = async (req, res, next) => {
 
     // 3. Lot general stats: Disponibles, Separados, Apartados, Vendidos
     const lotCounts = {
-      disponibles: await Lot.countDocuments({ tenantId, companyId, status: 'disponible' }),
-      separados: await Lot.countDocuments({ tenantId, companyId, status: 'separado' }),
-      apartados: await Lot.countDocuments({ tenantId, companyId, status: 'apartado' }),
-      vendidos: await Lot.countDocuments({ tenantId, companyId, status: 'vendido' }),
+      disponibles: await Lot.countDocuments({ tenantId, companyId, status: 'disponible', isDeleted: { $ne: true } }),
+      separados: await Lot.countDocuments({ tenantId, companyId, status: 'separado', isDeleted: { $ne: true } }),
+      apartados: await Lot.countDocuments({ tenantId, companyId, status: 'apartado', isDeleted: { $ne: true } }),
+      vendidos: await Lot.countDocuments({ tenantId, companyId, status: 'vendido', isDeleted: { $ne: true } }),
     };
 
     // 4. Detailed lot stats by Stage
@@ -180,6 +180,7 @@ export const getSalesReport = async (req, res, next) => {
         $match: {
           tenantId: new mongoose.Types.ObjectId(tenantId),
           companyId: new mongoose.Types.ObjectId(companyId),
+          isDeleted: { $ne: true },
         },
       },
       {
@@ -615,7 +616,7 @@ export const getLotsReport = async (req, res, next) => {
   try {
     const { tenantId, companyId } = req.user;
 
-    const lots = await Lot.find({ tenantId, companyId })
+    const lots = await Lot.find({ tenantId, companyId, isDeleted: { $ne: true } })
       .populate('sellerId', { path: 'accountId', select: 'fullName' })
       .populate('reservationBy', 'name idNumber')
       .sort({ stage: 1, manzana: 1, lotNumber: 1 });

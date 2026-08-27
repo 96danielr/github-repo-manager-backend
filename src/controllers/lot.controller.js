@@ -74,7 +74,8 @@ export const getLots = async (req, res, next) => {
       stage,
       sellerId,
       minArea,
-      maxArea
+      maxArea,
+      showDeleted,
     } = req.query;
     const skip = (page - 1) * limit;
 
@@ -85,6 +86,12 @@ export const getLots = async (req, res, next) => {
     }
 
     let query = { tenantId, companyId };
+
+    if (showDeleted === 'true') {
+      query.isDeleted = true;
+    } else if (showDeleted !== 'all') {
+      query.isDeleted = { $ne: true };
+    }
 
     if (status) {
       query.status = status;
@@ -206,12 +213,13 @@ export const getLot = async (req, res, next) => {
     // Run lazy cleanup for this specific tenant/company
     await checkLotExpirations(tenantId, companyId);
 
-    const lot = await Lot.findById(req.params.id)
+    const lot = await Lot.findOne({ _id: req.params.id, tenantId })
       .populate({
         path: 'sellerId',
         populate: { path: 'accountId', select: 'fullName email' },
       })
       .populate('reservationBy')
+      .populate('deletedBy', 'accountId')
       .lean();
 
     if (!lot) {
@@ -232,7 +240,22 @@ export const getLot = async (req, res, next) => {
 
 export const updateLot = async (req, res, next) => {
   try {
-    // Permiso ya validado por middleware
+    const { tenantId } = req.user;
+    const existingLot = await Lot.findOne({ _id: req.params.id, tenantId });
+
+    if (!existingLot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lote no encontrado',
+      });
+    }
+
+    if (existingLot.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se puede editar un lote que ha sido eliminado o archivado. Debe restaurarlo primero.',
+      });
+    }
 
     const { 
       stage, 
@@ -265,12 +288,12 @@ export const updateLot = async (req, res, next) => {
       },
     );
 
-    if (!lot) {
-      return res.status(404).json({
-        success: false,
-        message: 'Lote no encontrado',
-      });
-    }
+    await logAudit(req, {
+      action: 'UPDATE_LOT',
+      module: 'LOTS',
+      targetId: lot._id,
+      details: { stage, manzana, lotNumber, price, status }
+    });
 
     res.status(200).json({
       success: true,
@@ -283,9 +306,10 @@ export const updateLot = async (req, res, next) => {
 
 export const deleteLot = async (req, res, next) => {
   try {
-    // Permiso ya validado por middleware
+    const { tenantId, userId } = req.user;
+    const { reason } = req.body;
 
-    const lot = await Lot.findByIdAndDelete(req.params.id);
+    const lot = await Lot.findOne({ _id: req.params.id, tenantId });
 
     if (!lot) {
       return res.status(404).json({
@@ -294,9 +318,107 @@ export const deleteLot = async (req, res, next) => {
       });
     }
 
+    if (lot.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: 'El lote ya ha sido eliminado/archivado previamente',
+      });
+    }
+
+    // 1. Check if lot has active contracts with quotas or payments
+    const activeContract = await Contract.findOne({ 
+      lot: lot._id, 
+      tenantId,
+      status: { $ne: 'ANULADO' } 
+    }).populate('client');
+
+    if (activeContract) {
+      const clientName = activeContract.client?.name || 'Cliente registrado';
+      return res.status(400).json({
+        success: false,
+        message: `No se puede eliminar el lote porque tiene un contrato activo asociado (${clientName}). Para dar de baja el lote, anule o gestione el contrato primero.`,
+      });
+    }
+
+    // 2. Check if lot is reserved
+    if (['apartado', 'separado'].includes(lot.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `El lote tiene una reserva activa en estado '${lot.status}'. Por favor libere el lote antes de eliminarlo.`,
+      });
+    }
+
+    // 3. Perform Soft Delete
+    lot.isDeleted = true;
+    lot.deletedAt = new Date();
+    lot.deletedBy = userId;
+    lot.deletedReason = reason || 'Eliminación manual por usuario';
+    await lot.save();
+
+    await logAudit(req, {
+      action: 'DELETE_LOT',
+      module: 'LOTS',
+      targetId: lot._id,
+      details: { 
+        stage: lot.stage, 
+        manzana: lot.manzana, 
+        lotNumber: lot.lotNumber, 
+        nomenclature: lot.nomenclature,
+        reason: lot.deletedReason 
+      }
+    });
+
     res.status(200).json({
       success: true,
-      message: 'Lote eliminado correctamente',
+      message: 'Lote eliminado y archivado correctamente',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const restoreLot = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user;
+
+    const lot = await Lot.findOne({ _id: req.params.id, tenantId });
+
+    if (!lot) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lote no encontrado',
+      });
+    }
+
+    if (!lot.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: 'El lote no se encuentra eliminado',
+      });
+    }
+
+    lot.isDeleted = false;
+    lot.deletedAt = undefined;
+    lot.deletedBy = undefined;
+    lot.deletedReason = undefined;
+    await lot.save();
+
+    await logAudit(req, {
+      action: 'RESTORE_LOT',
+      module: 'LOTS',
+      targetId: lot._id,
+      details: { 
+        stage: lot.stage, 
+        manzana: lot.manzana, 
+        lotNumber: lot.lotNumber, 
+        nomenclature: lot.nomenclature 
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Lote restaurado correctamente y devuelto al inventario',
+      data: lot,
     });
   } catch (error) {
     next(error);
@@ -317,11 +439,18 @@ export const uploadLotImages = async (req, res, next) => {
       });
     }
 
-    const lot = await Lot.findById(id);
+    const lot = await Lot.findOne({ _id: id, tenantId: req.user.tenantId });
     if (!lot) {
       return res.status(404).json({
         success: false,
         message: 'Lote no encontrado',
+      });
+    }
+
+    if (lot.isDeleted) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se pueden subir imágenes a un lote eliminado',
       });
     }
 
@@ -346,7 +475,7 @@ export const getLotsPublic = async (req, res, next) => {
     const { companyId } = req.params;
     const { search } = req.query;
 
-    let query = { companyId, status: 'disponible' };
+    let query = { companyId, status: 'disponible', isDeleted: { $ne: true } };
     if (search) {
       query.$or = [
         { stage: { $regex: search, $options: 'i' } },
@@ -399,6 +528,10 @@ export const sellLot = async (req, res, next) => {
 
     const lot = await Lot.findById(id);
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
+
+    if (lot.isDeleted) {
+      return res.status(400).json({ success: false, message: 'No se puede vender un lote que ha sido eliminado o archivado' });
+    }
     
     // Validate installments count
     const maxInstallmentsAllowed = lot.maxInstallments !== undefined ? lot.maxInstallments : 24;
@@ -718,6 +851,10 @@ export const reserveLot = async (req, res, next) => {
     const lot = await Lot.findById(id);
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
 
+    if (lot.isDeleted) {
+      return res.status(400).json({ success: false, message: 'No se puede apartar ni separar un lote que ha sido eliminado o archivado' });
+    }
+
     // Check if lot is already reserved/sold
     if (lot.status === 'vendido') {
       return res.status(400).json({ success: false, message: 'El lote ya está vendido' });
@@ -853,6 +990,10 @@ export const assignLotSeller = async (req, res, next) => {
 
     const lot = await Lot.findOne({ _id: id, tenantId, companyId });
     if (!lot) return res.status(404).json({ success: false, message: 'Lote no encontrado' });
+
+    if (lot.isDeleted) {
+      return res.status(400).json({ success: false, message: 'No se puede vincular asesor a un lote eliminado' });
+    }
 
     const contract = await Contract.findOne({ lot: lot._id, tenantId, companyId });
     if (!contract) {

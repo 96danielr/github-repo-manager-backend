@@ -5,6 +5,7 @@ import {
   getLot, 
   updateLot, 
   deleteLot,
+  restoreLot,
   uploadLotImages,
   getLotsPublic,
   sellLot,
@@ -66,15 +67,20 @@ router.post('/:id/assign-seller',
   assignLotSeller
 );
 
+router.get('/:id/sale-detail', 
+  companyMiddleware, 
+  checkPermission(PERMISSIONS.LOTES_VIEW), 
+  getLotSaleDetail
+);
+
 router.route('/:id')
   .get(checkPermission(PERMISSIONS.LOTES_VIEW), getLot)
   .put(checkPermission(PERMISSIONS.LOTES_EDIT), updateLot)
   .delete(checkPermission(PERMISSIONS.LOTES_DELETE), deleteLot);
 
-router.get('/:id/sale-detail', 
-  companyMiddleware, 
-  checkPermission(PERMISSIONS.LOTES_VIEW), 
-  getLotSaleDetail
+router.post('/:id/restore',
+  checkPermission(PERMISSIONS.LOTES_DELETE),
+  restoreLot
 );
 
 // Image upload

@@ -20,6 +20,7 @@ export const checkLotExpirations = async (tenantId, companyId) => {
     const expiredLots = await Lot.find({
       tenantId,
       companyId,
+      isDeleted: { $ne: true },
       status: { $in: ['apartado', 'separado'] },
       $or: [
         { expiresAt: { $lt: now } },

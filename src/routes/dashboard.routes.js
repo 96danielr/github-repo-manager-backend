@@ -130,12 +130,19 @@ router.get('/summary', companyMiddleware, checkPermission(PERMISSIONS.CARTERA_DA
     const salesThisMonth = salesThisMonthAgg[0] || { ventas: 0, valorVendido: 0 };
 
     // 2. Lot Statistics
-    const separatedLots = await Lot.countDocuments({ ...baseMatch, status: 'separado' });
-    const soldLots = await Lot.countDocuments({ ...baseMatch, status: 'vendido' });
-    const availableLots = await Lot.countDocuments({ ...baseMatch, status: 'disponible' });
+    const lotMatch = { ...baseMatch, isDeleted: { $ne: true } };
+    const separatedLots = await Lot.countDocuments({ ...lotMatch, status: 'separado' });
+    const soldLots = await Lot.countDocuments({ ...lotMatch, status: 'vendido' });
+    const availableLots = await Lot.countDocuments({ ...lotMatch, status: 'disponible' });
 
     const lotStatsByStage = await Lot.aggregate([
-      { $match: { tenantId: new mongoose.Types.ObjectId(tenantId), companyId: new mongoose.Types.ObjectId(companyId) } },
+      { 
+        $match: { 
+          tenantId: new mongoose.Types.ObjectId(tenantId), 
+          companyId: new mongoose.Types.ObjectId(companyId),
+          isDeleted: { $ne: true }
+        } 
+      },
       {
         $group: {
           _id: '$stage',

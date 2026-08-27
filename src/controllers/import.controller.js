@@ -171,6 +171,10 @@ export const importExcel = async (req, res) => {
           // New format: 'VALOR TOTAL', old: 'VALOR DEL CONTRATO'
           price: parseNumStringWithLocalization(getValMulti(row, 'VALOR TOTAL', 'VALOR DEL CONTRATO')),
           status: lotStatus,
+          isDeleted: false,
+          deletedAt: undefined,
+          deletedBy: undefined,
+          deletedReason: undefined,
           excelRowId: excelRowId,
           tenantId,
           companyId,
@@ -501,7 +505,7 @@ export const exportExcel = async (req, res) => {
     console.log(`--- Iniciando Exportación Excel (Todos los lotes): Tenant ${tenantId}, Company ${companyId} ---`);
 
     // 1. Fetch all Lots
-    const lots = await Lot.find({ tenantId, companyId })
+    const lots = await Lot.find({ tenantId, companyId, isDeleted: { $ne: true } })
       .populate({
         path: 'reservationBy',
         select: 'name idNumber phone phones email address expeditionPlace behavior excelRowId'
@@ -892,6 +896,10 @@ export const importLotsOnly = async (req, res) => {
           area: area || undefined,
           price: price || undefined,
           status: lot?.status || 'disponible',
+          isDeleted: false,
+          deletedAt: undefined,
+          deletedBy: undefined,
+          deletedReason: undefined,
           tenantId,
           companyId,
           excelRowId: rowNum,

@@ -67,10 +67,28 @@ const lotSchema = new mongoose.Schema({
     required: false,
   },
   excelRowId: Number,
+  isDeleted: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+  deletedAt: {
+    type: Date,
+  },
+  deletedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  },
+  deletedReason: {
+    type: String,
+    trim: true,
+  },
 }, { timestamps: true });
 
 lotSchema.index({ tenantId: 1, companyId: 1 });
+lotSchema.index({ tenantId: 1, companyId: 1, isDeleted: 1 });
 lotSchema.index({ status: 1 });
+lotSchema.index({ status: 1, isDeleted: 1 });
 lotSchema.index({ reference: 1 });
 lotSchema.index({ sellerId: 1 });
 lotSchema.index({ companyId: 1, status: 1 });

@@ -14,14 +14,59 @@ import { generateStatementStream } from '../utils/statement.js';
  */
 export const getReceiptPDF = async (req, res, next) => {
   try {
-    let { quotaId } = req.params;
-    quotaId = quotaId.replace(/[^a-fA-F0-9]/g, '');
+    let { quotaId, attemptId } = req.params;
+    if (quotaId) quotaId = quotaId.replace(/[^a-fA-F0-9]/g, '');
+    if (attemptId) attemptId = attemptId.replace(/[^a-fA-F0-9]/g, '');
 
-    // Check if an approved PaymentAttempt contains this quota
-    const attempt = await PaymentAttempt.findOne({
-      'quotas.quotaId': quotaId,
-      status: 'APROBADO'
-    });
+    const { receiptNumber, attemptId: queryAttemptId } = req.query;
+    const effectiveAttemptId = attemptId || (queryAttemptId ? queryAttemptId.replace(/[^a-fA-F0-9]/g, '') : null);
+
+    let attempt = null;
+    let quota = null;
+
+    // 1. Direct search by PaymentAttempt ID if specified
+    if (effectiveAttemptId) {
+      attempt = await PaymentAttempt.findOne({ _id: effectiveAttemptId, status: 'APROBADO' });
+    }
+
+    // 2. If quotaId is provided, retrieve quota
+    if (quotaId) {
+      quota = await Quota.findById(quotaId)
+        .populate({
+          path: 'contract',
+          populate: [
+            { path: 'client' },
+            { path: 'lot' },
+          ],
+        });
+    }
+
+    // 3. Search attempt by specific receiptNumber if provided in query or on the quota
+    const targetReceiptNumber = receiptNumber ? Number(receiptNumber) : (quota?.receiptNumber || null);
+
+    if (!attempt && targetReceiptNumber) {
+      if (quota) {
+        attempt = await PaymentAttempt.findOne({
+          'quotas.quotaId': quota._id,
+          receiptNumber: targetReceiptNumber,
+          status: 'APROBADO',
+        });
+      }
+      if (!attempt) {
+        attempt = await PaymentAttempt.findOne({
+          receiptNumber: targetReceiptNumber,
+          status: 'APROBADO',
+        });
+      }
+    }
+
+    // 4. Fallback: Search attempt matching this quotaId (most recent approved attempt)
+    if (!attempt && quota) {
+      attempt = await PaymentAttempt.findOne({
+        'quotas.quotaId': quota._id,
+        status: 'APROBADO',
+      }).sort({ createdAt: -1 });
+    }
 
     if (attempt) {
       // If a matching payment attempt is found, generate the consolidated receipt for the entire transaction!
@@ -94,14 +139,16 @@ export const getReceiptPDF = async (req, res, next) => {
     }
 
     // Fallback to legacy single quota receipt if no PaymentAttempt is found
-    const quota = await Quota.findById(quotaId)
-      .populate({
-        path: 'contract',
-        populate: [
-          { path: 'client' },
-          { path: 'lot' },
-        ],
-      });
+    if (!quota && quotaId) {
+      quota = await Quota.findById(quotaId)
+        .populate({
+          path: 'contract',
+          populate: [
+            { path: 'client' },
+            { path: 'lot' },
+          ],
+        });
+    }
 
     if (!quota) {
       return next(new AppError('Cuota no encontrada', 404));
