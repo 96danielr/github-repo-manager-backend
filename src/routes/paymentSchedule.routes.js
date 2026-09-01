@@ -4,7 +4,7 @@ import { PERMISSIONS } from '../config/permissions.js';
 import { tenantMiddleware } from '../middleware/tenant.js';
 import { companyMiddleware } from '../middleware/company.js';
 import { logAudit } from '../utils/auditLogger.js';
-import { simulateScheduleAdjustment, applyScheduleAdjustment } from '../services/paymentSchedule.service.js';
+import { simulateScheduleAdjustment, applyScheduleAdjustment, generateContractSchedule } from '../services/paymentSchedule.service.js';
 
 const router = express.Router();
 
@@ -69,4 +69,61 @@ router.post('/apply', checkPermission(PERMISSIONS.CLIENTES_EDIT || 'CLIENTES_EDI
   }
 });
 
+// POST /api/payment-schedule/generate
+router.post('/generate', checkPermission(PERMISSIONS.CLIENTES_EDIT || 'CLIENTES_EDIT'), async (req, res) => {
+  try {
+    const { tenantId, companyId, _id: userId } = req.user;
+    const {
+      contractId,
+      totalValue,
+      installmentsCount,
+      installmentValue,
+      startDate,
+      paymentDay,
+      balloonInterval,
+      balloonValue,
+      initialQuotasCount,
+      initialQuotaValue,
+      preserveExistingPayments
+    } = req.body;
+
+    if (!contractId || !totalValue || !installmentsCount || !installmentValue) {
+      return res.status(400).json({
+        success: false,
+        message: 'Parámetros obligatorios faltantes: contractId, totalValue, installmentsCount, installmentValue'
+      });
+    }
+
+    const result = await generateContractSchedule({
+      contractId,
+      tenantId,
+      companyId,
+      totalValue,
+      installmentsCount,
+      installmentValue,
+      startDate,
+      paymentDay,
+      balloonInterval,
+      balloonValue,
+      initialQuotasCount,
+      initialQuotaValue,
+      preserveExistingPayments,
+      auditUser: userId
+    });
+
+    await logAudit(req, {
+      action: 'GENERATE_PLAN_PAGOS',
+      module: 'CONTRACTS',
+      targetId: contractId,
+      details: { totalValue, installmentsCount, installmentValue, balloonInterval, balloonValue }
+    });
+
+    return res.json({ success: true, message: result.message, data: result });
+  } catch (error) {
+    console.error('[PAYMENT_SCHEDULE] Error generating schedule:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 export default router;
+

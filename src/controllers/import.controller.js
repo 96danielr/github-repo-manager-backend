@@ -140,7 +140,7 @@ export const importExcel = async (req, res) => {
           continue;
         }
 
-        const stage = getVal(row, 'ETAPA')?.toString() || 'Etapa 1';
+        const stage = getVal(row, 'ETAPA')?.toString() || 'Desconocida';
         // Identification is by combination of reference and nomenclature
         const refClean = (reference || '').toString().trim().toLowerCase();
         const nomClean = (nomenclature || '').toString().trim().toLowerCase();
@@ -858,7 +858,7 @@ export const importLotsOnly = async (req, res) => {
       const rowNum = i + 2;
 
       try {
-        const stage = getValMulti(row, 'Etapa', 'stage', 'etapa', 'Etapa (Stage)')?.toString().trim() || 'Etapa 1';
+        const stage = getValMulti(row, 'Etapa', 'stage', 'etapa', 'Etapa (Stage)')?.toString().trim() || 'Desconocida';
         const manzana = getValMulti(row, 'Manzana', 'block', 'manzana', 'Manzana (Block)')?.toString().trim() || '';
         const lotNumber = getValMulti(row, 'Lote', 'lote', 'lot', 'lotNumber', 'Número de lote')?.toString().trim();
         

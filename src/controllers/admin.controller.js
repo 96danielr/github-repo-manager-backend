@@ -146,7 +146,7 @@ export const createUser = async (req, res, next) => {
     const validRoles = [
       'tenant_admin', 'company_admin', 'agent', 'vendedor',
       'administrador', 'gerente', 'jefe_cartera', 'auxiliar_cartera',
-      'contador', 'auxiliar_contable', 'ejecutivo_comercial'
+      'contador', 'auxiliar_contable', 'ejecutivo_comercial', 'cliente', 'superadmin'
     ];
     if (!validRoles.includes(role)) {
       return next(new AppError(`Invalid role. Must be one of: ${validRoles.join(', ')}`, 400));

@@ -11,45 +11,45 @@ const validatePlanBody = ({ name, baseType, baseValue, tiers, milestones }) => {
   const hasTiers = Array.isArray(tiers) && tiers.length > 0;
   const hasMilestones = Array.isArray(milestones) && milestones.length > 0;
 
-  if (!hasTiers && !hasMilestones) return 'Debes configurar tramos por cuota inicial o hitos de desembolso';
+  if (!hasTiers && !hasMilestones) return 'Debes configurar rangos por cuota inicial o logros de desembolso';
 
   if (hasTiers) {
     if (baseType === 'percentage') {
-      return 'Los tramos por cuota inicial solo se soportan con base fija. Para base porcentaje usa hitos con porción.';
+      return 'Los rangos por cuota inicial solo se soportan con base fija. Para base porcentaje usa logros con porción.';
     }
     for (const tier of tiers) {
       const pct = parseFloat(tier.initialQuotaPercentage);
       if (!pct || pct <= 0 || pct > 100) {
-        return 'Cada tramo debe tener un porcentaje de cuota inicial entre 1 y 100';
+        return 'Cada rango debe tener un porcentaje de cuota inicial entre 1 y 100';
       }
       if (!Array.isArray(tier.milestones) || tier.milestones.length === 0) {
-        return `El tramo de ${pct}% debe tener al menos un hito de desembolso`;
+        return `El rango de ${pct}% debe tener al menos un logro de desembolso`;
       }
       for (const m of tier.milestones) {
-        if (!VALID_KEYS.includes(m.key)) return 'Hito inválido: use INITIAL_QUOTA o QUOTA_NUMBER';
+        if (!VALID_KEYS.includes(m.key)) return 'Logro inválido: use INITIAL_QUOTA o QUOTA_NUMBER';
         if (m.key === 'QUOTA_NUMBER' && (!m.quotaNumber || m.quotaNumber < 1)) {
-          return 'El hito QUOTA_NUMBER requiere un número de cuota mayor a 0';
+          return 'El logro QUOTA_NUMBER requiere un número de cuota mayor a 0';
         }
-        if (m.amount === undefined || parseFloat(m.amount) < 0) return 'Cada hito debe tener un monto no negativo';
+        if (m.amount === undefined || parseFloat(m.amount) < 0) return 'Cada logro debe tener un monto no negativo';
       }
       const sum = tier.milestones.reduce((s, m) => s + parseFloat(m.amount), 0);
       if (Math.abs(sum - parseFloat(baseValue)) > 0.01) {
-        return `El tramo de ${pct}% suma $${sum.toLocaleString()} pero el valor base es $${parseFloat(baseValue).toLocaleString()}. Deben coincidir.`;
+        return `El rango de ${pct}% suma $${sum.toLocaleString()} pero el valor base es $${parseFloat(baseValue).toLocaleString()}. Deben coincidir.`;
       }
     }
   }
 
   if (!hasTiers && hasMilestones) {
     for (const m of milestones) {
-      if (!VALID_KEYS.includes(m.key)) return 'Hito inválido: use INITIAL_QUOTA o QUOTA_NUMBER';
+      if (!VALID_KEYS.includes(m.key)) return 'Logro inválido: use INITIAL_QUOTA o QUOTA_NUMBER';
       if (m.key === 'QUOTA_NUMBER' && (!m.quotaNumber || m.quotaNumber < 1)) {
-        return 'El hito QUOTA_NUMBER requiere un número de cuota mayor a 0';
+        return 'El logro QUOTA_NUMBER requiere un número de cuota mayor a 0';
       }
-      if (m.portion === undefined || parseFloat(m.portion) <= 0) return 'Cada hito debe tener una porción mayor a 0';
+      if (m.portion === undefined || parseFloat(m.portion) <= 0) return 'Cada logro debe tener una porción mayor a 0';
     }
-    const totalPortion = milestones.reduce((s, m) => s + parseFloat(m.portion), 0);
-    if (Math.abs(totalPortion - 1) > 0.001) {
-      return 'La suma de las porciones de los hitos debe ser 1 (100%)';
+    const sumPortions = milestones.reduce((s, m) => s + parseFloat(m.portion), 0);
+    if (Math.abs(sumPortions - 1) > 0.01) {
+      return 'La suma de las porciones de los logros debe ser 1 (100%)';
     }
   }
 

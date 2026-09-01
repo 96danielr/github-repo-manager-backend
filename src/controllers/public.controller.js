@@ -14,6 +14,11 @@ import { generateStatementStream } from '../utils/statement.js';
  */
 export const getReceiptPDF = async (req, res, next) => {
   try {
+    // Prevent browser caching so the most recent receipt is always generated fresh
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     let { quotaId, attemptId } = req.params;
     if (quotaId) quotaId = quotaId.replace(/[^a-fA-F0-9]/g, '');
     if (attemptId) attemptId = attemptId.replace(/[^a-fA-F0-9]/g, '');
@@ -204,6 +209,10 @@ export const getReceiptPDF = async (req, res, next) => {
  */
 export const getStatementPDF = async (req, res, next) => {
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+
     let { contractId } = req.params;
     contractId = contractId.replace(/[^a-fA-F0-9]/g, '');
 

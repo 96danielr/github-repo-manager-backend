@@ -187,3 +187,142 @@ export async function applyScheduleAdjustment({ contractId, tenantId, companyId,
     throw error;
   }
 }
+
+/**
+ * Generates or completely rebuilds a contract payment schedule from scratch.
+ * Handles setting new totalValue, installment count, installment value,
+ * optional initial quotas, and balloon/extraordinary quotas every N months.
+ */
+export async function generateContractSchedule({
+  contractId,
+  tenantId,
+  companyId,
+  totalValue,
+  installmentsCount,
+  installmentValue,
+  startDate,
+  paymentDay = 15,
+  balloonInterval,
+  balloonValue,
+  initialQuotasCount = 0,
+  initialQuotaValue = 0,
+  preserveExistingPayments = true,
+  auditUser
+}) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const contract = await Contract.findOne({ _id: contractId, tenantId, companyId }).session(session);
+    if (!contract) {
+      throw new Error('Contrato no encontrado');
+    }
+
+    const parsedTotalValue = Number(totalValue);
+    const parsedInstallmentsCount = Number(installmentsCount);
+    const parsedInstallmentValue = Number(installmentValue);
+
+    if (!parsedTotalValue || parsedTotalValue <= 0) {
+      throw new Error('El valor total del contrato debe ser mayor a 0');
+    }
+    if (!parsedInstallmentsCount || parsedInstallmentsCount <= 0) {
+      throw new Error('El número de cuotas debe ser mayor a 0');
+    }
+
+    // Existing quotas
+    const existingQuotas = await Quota.find({ contract: contractId, tenantId, companyId }).session(session);
+    const paidOrPartialQuotas = existingQuotas.filter(q => q.status === 'pagado' || (q.amountPaid && q.amountPaid > 0));
+
+    if (!preserveExistingPayments || paidOrPartialQuotas.length === 0) {
+      // Remove all existing quotas
+      await Quota.deleteMany({ contract: contractId, tenantId, companyId }).session(session);
+    } else {
+      // Remove only unpaid/un-credited pending/mora quotas
+      const paidIds = paidOrPartialQuotas.map(q => q._id);
+      await Quota.deleteMany({ contract: contractId, tenantId, companyId, _id: { $nin: paidIds } }).session(session);
+    }
+
+    const baseStartDate = startDate ? new Date(startDate) : (contract.startDate || new Date());
+    const quotasToInsert = [];
+
+    // 1. Initial quotas if specified
+    if (initialQuotasCount > 0 && initialQuotaValue > 0) {
+      for (let i = 1; i <= initialQuotasCount; i++) {
+        const existingPaid = paidOrPartialQuotas.find(q => q.type === 'inicial' && q.number === i);
+        if (existingPaid) continue;
+
+        const dueDate = new Date(baseStartDate);
+        dueDate.setMonth(dueDate.getMonth() + (i - 1));
+        if (paymentDay) dueDate.setDate(Math.min(paymentDay, 28));
+
+        quotasToInsert.push({
+          tenantId,
+          companyId,
+          contract: contractId,
+          number: i,
+          type: 'inicial',
+          value: initialQuotaValue,
+          dueDate,
+          status: 'pendiente',
+          amountPaid: 0
+        });
+      }
+    }
+
+    // 2. Normal / Extraordinary quotas
+    for (let i = 1; i <= parsedInstallmentsCount; i++) {
+      const existingPaid = paidOrPartialQuotas.find(q => q.type === 'normal' && q.number === i);
+      if (existingPaid) continue;
+
+      const dueDate = new Date(baseStartDate);
+      dueDate.setMonth(dueDate.getMonth() + (initialQuotasCount || 0) + (i - 1));
+      if (paymentDay) dueDate.setDate(Math.min(paymentDay, 28));
+
+      let qVal = parsedInstallmentValue;
+      // If balloonInterval is provided and i is a multiple of balloonInterval
+      if (balloonInterval && balloonValue && i % Number(balloonInterval) === 0) {
+        qVal = Number(balloonValue);
+      }
+
+      quotasToInsert.push({
+        tenantId,
+        companyId,
+        contract: contractId,
+        number: i,
+        type: 'normal',
+        value: qVal,
+        dueDate,
+        status: 'pendiente',
+        amountPaid: 0
+      });
+    }
+
+    if (quotasToInsert.length > 0) {
+      await Quota.insertMany(quotasToInsert, { session });
+    }
+
+    // Update contract metadata
+    contract.totalValue = parsedTotalValue;
+    contract.installmentsCount = parsedInstallmentsCount;
+    contract.installmentValue = parsedInstallmentValue;
+    if (startDate) contract.startDate = new Date(startDate);
+    if (paymentDay) contract.paymentDay = paymentDay;
+    if (initialQuotasCount) contract.initialQuotasCount = initialQuotasCount;
+    await contract.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return {
+      success: true,
+      message: `Plan de financiación generado exitosamente con ${quotasToInsert.length} cuotas nuevas`,
+      totalValue: parsedTotalValue,
+      quotasCreated: quotasToInsert.length
+    };
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
+  }
+}
+

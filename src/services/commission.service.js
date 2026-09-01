@@ -25,16 +25,17 @@ export const buildCommissionForContract = async ({ contract, tenantId, companyId
   let installments = [];
 
   if (plan.tiers && plan.tiers.length > 0) {
-    // Regla "30% o más de CI": se elige el tramo con el mayor initialQuotaPercentage
-    // que NO supere el CI del contrato (ej. CI 35% cae en el tramo de 30%).
-    const tiers = plan.tiers
-      .filter((t) => ciPct >= (t.initialQuotaPercentage || 0))
-      .sort((a, b) => (b.initialQuotaPercentage || 0) - (a.initialQuotaPercentage || 0));
-    const tier = tiers[0];
-    if (!tier) {
-      console.warn(`[COMMISSION] Plan "${plan.name}" sin tramo aplicable para CI ${ciPct}%. No se crea comisión.`);
+    // Regla "30% o más de CI": se elige el rango con el mayor initialQuotaPercentage
+    // que NO supere el CI del contrato (ej. CI 35% cae en el rango de 30%).
+    const tier = [...plan.tiers]
+      .filter((t) => (t.initialQuotaPercentage || 0) <= ciPct)
+      .sort((a, b) => (b.initialQuotaPercentage || 0) - (a.initialQuotaPercentage || 0))[0];
+
+    if (!tier || !tier.milestones || tier.milestones.length === 0) {
+      console.warn(`[COMMISSION] Plan "${plan.name}" sin rango aplicable para CI ${ciPct}%. No se crea comisión.`);
       return null;
     }
+
     totalAmount = tier.milestones.reduce((sum, m) => sum + (m.amount || 0), 0);
     installments = tier.milestones.map((m) => ({
       milestoneKey: m.key,
@@ -54,7 +55,7 @@ export const buildCommissionForContract = async ({ contract, tenantId, companyId
       status: 'PENDING',
     }));
   } else {
-    console.warn(`[COMMISSION] Plan "${plan.name}" sin tramos ni hitos. No se crea comisión.`);
+    console.warn(`[COMMISSION] Plan "${plan.name}" sin rangos ni hitos. No se crea comisión.`);
     return null;
   }
 
