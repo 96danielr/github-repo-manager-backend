@@ -41,10 +41,14 @@ router.post('/simulate', checkPermission(PERMISSIONS.CLIENTES_EDIT || 'CLIENTES_
 router.post('/apply', checkPermission(PERMISSIONS.CLIENTES_EDIT || 'CLIENTES_EDIT'), async (req, res) => {
   try {
     const { tenantId, companyId, _id: userId } = req.user;
-    const { contractId, updatedQuotas } = req.body;
+    const { contractId, updatedQuotas, reason } = req.body;
 
     if (!contractId || !updatedQuotas || !Array.isArray(updatedQuotas)) {
       return res.status(400).json({ success: false, message: 'Datos incompletos para reestructurar el plan de pagos' });
+    }
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ success: false, message: 'La Nota de Ajuste es obligatoria para registrar los cambios.' });
     }
 
     const result = await applyScheduleAdjustment({
@@ -52,6 +56,7 @@ router.post('/apply', checkPermission(PERMISSIONS.CLIENTES_EDIT || 'CLIENTES_EDI
       tenantId,
       companyId,
       updatedQuotas,
+      reason: reason.trim(),
       auditUser: userId
     });
 
@@ -59,7 +64,7 @@ router.post('/apply', checkPermission(PERMISSIONS.CLIENTES_EDIT || 'CLIENTES_EDI
       action: 'RESTRUCTURA_PLAN_PAGOS',
       module: 'CONTRACTS',
       targetId: contractId,
-      details: { count: updatedQuotas.length }
+      details: { count: updatedQuotas.length, reason: reason.trim() }
     });
 
     return res.json({ success: true, message: result.message });
@@ -84,13 +89,21 @@ router.post('/generate', checkPermission(PERMISSIONS.CLIENTES_EDIT || 'CLIENTES_
       balloonValue,
       initialQuotasCount,
       initialQuotaValue,
-      preserveExistingPayments
+      preserveExistingPayments,
+      reason
     } = req.body;
 
     if (!contractId || !totalValue || !installmentsCount || !installmentValue) {
       return res.status(400).json({
         success: false,
         message: 'Parámetros obligatorios faltantes: contractId, totalValue, installmentsCount, installmentValue'
+      });
+    }
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'La Nota de Ajuste es obligatoria para registrar los cambios.'
       });
     }
 
@@ -108,6 +121,7 @@ router.post('/generate', checkPermission(PERMISSIONS.CLIENTES_EDIT || 'CLIENTES_
       initialQuotasCount,
       initialQuotaValue,
       preserveExistingPayments,
+      reason: reason.trim(),
       auditUser: userId
     });
 
@@ -115,7 +129,7 @@ router.post('/generate', checkPermission(PERMISSIONS.CLIENTES_EDIT || 'CLIENTES_
       action: 'GENERATE_PLAN_PAGOS',
       module: 'CONTRACTS',
       targetId: contractId,
-      details: { totalValue, installmentsCount, installmentValue, balloonInterval, balloonValue }
+      details: { totalValue, installmentsCount, installmentValue, balloonInterval, balloonValue, reason: reason.trim() }
     });
 
     return res.json({ success: true, message: result.message, data: result });

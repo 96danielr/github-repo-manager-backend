@@ -136,7 +136,7 @@ export async function simulateScheduleAdjustment({ contractId, tenantId, company
 /**
  * Applies the user-approved schedule adjustment to the database in a Mongoose session transaction.
  */
-export async function applyScheduleAdjustment({ contractId, tenantId, companyId, updatedQuotas, auditUser }) {
+export async function applyScheduleAdjustment({ contractId, tenantId, companyId, updatedQuotas, reason, auditUser }) {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -175,6 +175,13 @@ export async function applyScheduleAdjustment({ contractId, tenantId, companyId,
 
     const normalCount = updatedQuotas.filter(q => q.type === 'normal').length;
     contract.installmentsCount = normalCount;
+
+    if (reason) {
+      const dateStr = new Date().toLocaleDateString('es-CO');
+      const noteEntry = `[${dateStr} - Reestructuración Cuotas]: ${reason}`;
+      contract.observations = contract.observations ? `${contract.observations} | ${noteEntry}` : noteEntry;
+    }
+
     await contract.save({ session });
 
     await session.commitTransaction();
@@ -207,6 +214,7 @@ export async function generateContractSchedule({
   initialQuotasCount = 0,
   initialQuotaValue = 0,
   preserveExistingPayments = true,
+  reason,
   auditUser
 }) {
   const session = await mongoose.startSession();
@@ -308,6 +316,13 @@ export async function generateContractSchedule({
     if (startDate) contract.startDate = new Date(startDate);
     if (paymentDay) contract.paymentDay = paymentDay;
     if (initialQuotasCount) contract.initialQuotasCount = initialQuotasCount;
+
+    if (reason) {
+      const dateStr = new Date().toLocaleDateString('es-CO');
+      const noteEntry = `[${dateStr} - Estructuración Contrato]: ${reason}`;
+      contract.observations = contract.observations ? `${contract.observations} | ${noteEntry}` : noteEntry;
+    }
+
     await contract.save({ session });
 
     await session.commitTransaction();
