@@ -38,7 +38,7 @@ export function normalizeValue(value, field = 'unit') {
   let result = String(value).trim();
   if (!result) return '';
   result = stripDiacritics(result).toUpperCase();
-  result = result.replace(/[\-_./]+/g, ' ').replace(/\s+/g, ' ').trim();
+  result = result.replace(/[-_./]+/g, ' ').replace(/\s+/g, ' ').trim();
   const prefixes = PREFIXES[field] || [];
   for (const prefix of prefixes) {
     const token = prefix.toUpperCase();
@@ -64,17 +64,17 @@ export function buildUnitKey(propertyType, data = {}, options = {}) {
 
   let parts;
   switch (type) {
-    case 'apartamentos':
-      parts = includeFloor ? [stage, tower, floor, unit] : [stage, tower, unit];
-      break;
-    case 'locales':
-      parts = [stage, unit];
-      break;
-    case 'casas':
-    case 'lotes':
-    default:
-      parts = [stage, manzana, unit];
-      break;
+  case 'apartamentos':
+    parts = includeFloor ? [stage, tower, floor, unit] : [stage, tower, unit];
+    break;
+  case 'locales':
+    parts = [stage, unit];
+    break;
+  case 'casas':
+  case 'lotes':
+  default:
+    parts = [stage, manzana, unit];
+    break;
   }
 
   const prefix = { lotes: 'lote', casas: 'casa', apartamentos: 'apto', locales: 'local' }[type];
