@@ -19,6 +19,7 @@ export const getCompanies = async (req, res, next) => {
         status: t.status === 'suspended' ? 'inactive' : 'active',
         // use plan as a secondary info
         rfc: `Plan: ${t.plan}`,
+        propertyType: 'lotes', // default for superadmin view
       }));
 
       return res.json({
@@ -88,7 +89,7 @@ export const getCompany = async (req, res, next) => {
  */
 export const createCompany = async (req, res, next) => {
   try {
-    const { name, rfc, nit, address, phone, email } = req.body;
+    const { name, rfc, nit, address, phone, email, propertyType } = req.body;
     const { tenantId } = req.user;
 
     if (!name) {
@@ -114,6 +115,7 @@ export const createCompany = async (req, res, next) => {
       address,
       phone,
       email,
+      ...(propertyType && { propertyType }),
     });
 
     res.status(201).json({
@@ -130,7 +132,7 @@ export const createCompany = async (req, res, next) => {
  */
 export const updateCompany = async (req, res, next) => {
   try {
-    const { name, rfc, status, nit, address, phone, email, bankInfo, integrations, bankAccounts, logo, projectLogo } = req.body;
+    const { name, rfc, status, nit, address, phone, email, bankInfo, integrations, bankAccounts, logo, projectLogo, propertyType } = req.body;
     const { tenantId } = req.user;
     const companyId = req.params.id;
 
@@ -152,6 +154,7 @@ export const updateCompany = async (req, res, next) => {
     if (bankAccounts !== undefined) company.bankAccounts = bankAccounts;
     if (logo !== undefined) company.logo = logo;
     if (projectLogo !== undefined) company.projectLogo = projectLogo;
+    if (propertyType !== undefined) company.propertyType = propertyType;
 
     await company.save();
 
@@ -192,7 +195,7 @@ export const deleteCompany = async (req, res, next) => {
 
 export const getCompanyPublic = async (req, res, next) => {
   try {
-    const company = await Company.findById(req.params.id).select('name status');
+    const company = await Company.findById(req.params.id).select('name status propertyType');
     if (!company) {
       return res.status(404).json({ success: false, message: 'Inmobiliaria no encontrada' });
     }

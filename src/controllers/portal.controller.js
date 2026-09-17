@@ -78,7 +78,11 @@ export const getPortalHome = async (req, res, next) => {
           manzana: c.lot?.manzana || '',
           nomenclatura: c.lot?.nomenclature || '',
           areaTotalM2: c.lot?.area || 0,
-          proyecto: c.companyId?.name || c.lot?.companyId?.name || ''
+          proyecto: c.companyId?.name || c.lot?.companyId?.name || '',
+          propertyType: c.lot?.propertyType || 'lotes',
+          tower: c.lot?.tower || '',
+          floor: c.lot?.floor || '',
+          lotNumber: c.lot?.lotNumber || '',
         },
         valorTotal: totalValue,
         valorCuota: c.installmentValue || 0,
@@ -556,7 +560,11 @@ export const getPortalContractDetail = async (req, res, next) => {
         manzana: contract.lot?.manzana || '',
         nomenclatura: contract.lot?.nomenclature || '',
         areaTotalM2: contract.lot?.area || 0,
-        proyecto: contract.companyId?.name || contract.lot?.companyId?.name || ''
+        proyecto: contract.companyId?.name || contract.lot?.companyId?.name || '',
+        propertyType: contract.lot?.propertyType || 'lotes',
+        tower: contract.lot?.tower || '',
+        floor: contract.lot?.floor || '',
+        lotNumber: contract.lot?.lotNumber || ''
       },
       valorTotal: contract.totalValue || 0,
       totalPagado,

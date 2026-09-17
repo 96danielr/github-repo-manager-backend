@@ -85,9 +85,13 @@ export const generateSiigoExcel = (paymentAttempts, config = {}) => {
     const lot = contract.lot || {};
     const company = contract.companyId || {};
 
+    // Dynamic label based on property type
+    const propertyLabels = { lotes: 'LOTE', casas: 'CASA', apartamentos: 'APTO', locales: 'LOCAL' };
+    const propLabel = propertyLabels[lot.propertyType] || 'LOTE';
+
     const fechaElaboracion = formatDate(attempt.fechaPago);
     const identificacionTercero = client.idNumber || '';
-    const consecutivoContrato = contract.excelRowId || lot.number || '';
+    const consecutivoContrato = contract.excelRowId || lot.lotNumber || '';
     const cuentaBanco = getBankAccountingAccount(attempt.banco);
 
     // If the payment attempt contains multiple quota payments, split them
@@ -98,8 +102,8 @@ export const generateSiigoExcel = (paymentAttempts, config = {}) => {
         const quotaAmount = qItem.amount || attempt.amount;
         const fechaVencimiento = quotaDoc.dueDate ? formatDate(quotaDoc.dueDate) : fechaElaboracion;
         
-        const description = `CUOTA ${cuotaNo} LOTE ${lot.number || ''}`.trim();
-        const observaciones = `CUOTA ${cuotaNo} LOTE ${lot.number || ''} ${company.name || ''}`.trim().substring(0, 100);
+        const description = `CUOTA ${cuotaNo} ${propLabel} ${lot.lotNumber || ''}`.trim();
+        const observaciones = `CUOTA ${cuotaNo} ${propLabel} ${lot.lotNumber || ''} ${company.name || ''}`.trim().substring(0, 100);
 
         // Row 1: Portfolio (Account 13) - Credit
         rows.push([
@@ -167,8 +171,8 @@ export const generateSiigoExcel = (paymentAttempts, config = {}) => {
       });
     } else {
       // Fallback if no quotas subdocument
-      const description = `CUOTA LOTE ${lot.number || ''}`.trim();
-      const observaciones = `CUOTA LOTE ${lot.number || ''} ${company.name || ''}`.trim().substring(0, 100);
+      const description = `CUOTA ${propLabel} ${lot.lotNumber || ''}`.trim();
+      const observaciones = `CUOTA ${propLabel} ${lot.lotNumber || ''} ${company.name || ''}`.trim().substring(0, 100);
 
       // Row 1: Portfolio (Account 13) - Credit
       rows.push([

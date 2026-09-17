@@ -23,7 +23,9 @@ import validate from '../middleware/validate.js';
 import { 
   reserveLotValidation, 
   sellLotValidation, 
-  releaseLotValidation 
+  releaseLotValidation,
+  createLotValidation,
+  updateLotValidation
 } from '../validators/lot.validators.js';
 
 const router = express.Router();
@@ -38,7 +40,7 @@ router.use(tenantMiddleware);
 // All lot operations require company context
 router.route('/')
   .get(companyMiddleware, checkPermission(PERMISSIONS.LOTES_VIEW), getLots)
-  .post(companyMiddleware, checkPermission(PERMISSIONS.LOTES_CREATE), createLot);
+  .post(companyMiddleware, checkPermission(PERMISSIONS.LOTES_CREATE), validate(createLotValidation), createLot);
 
 // Sale operations
 router.post('/:id/sell', 
@@ -75,7 +77,7 @@ router.get('/:id/sale-detail',
 
 router.route('/:id')
   .get(checkPermission(PERMISSIONS.LOTES_VIEW), getLot)
-  .put(checkPermission(PERMISSIONS.LOTES_EDIT), updateLot)
+  .put(checkPermission(PERMISSIONS.LOTES_EDIT), validate(updateLotValidation), updateLot)
   .delete(checkPermission(PERMISSIONS.LOTES_DELETE), deleteLot);
 
 router.post('/:id/restore',

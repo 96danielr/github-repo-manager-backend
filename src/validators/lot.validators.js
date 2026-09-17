@@ -58,3 +58,48 @@ export const releaseLotValidation = z.object({
       .min(1, 'La razón de liberación es obligatoria')
   })
 });
+
+export const createLotValidation = z.object({
+  body: z.object({
+    stage: z.string().optional(),
+    manzana: z.string().optional(),
+    nomenclature: z.string().optional(),
+    lotNumber: z.string({ required_error: 'El número de inmueble es obligatorio' })
+      .min(1, 'El número de inmueble es obligatorio'),
+    area: z.coerce.number({ 
+      required_error: 'El área es obligatoria', 
+      invalid_type_error: 'El área debe ser un número' 
+    }).positive('El área debe ser mayor a 0'),
+    price: z.coerce.number({ invalid_type_error: 'El precio debe ser un número' })
+      .min(0, 'El precio no puede ser negativo')
+      .optional(),
+    propertyType: z.enum(['lotes', 'casas', 'apartamentos', 'locales']).optional(),
+    tower: z.string().optional(),
+    floor: z.string().optional(),
+    status: z.enum(['disponible', 'apartado', 'separado', 'vendido']).optional(),
+    maxInstallments: z.coerce.number().int().min(1).optional(),
+    images: z.array(z.string()).optional(),
+  })
+});
+
+export const updateLotValidation = z.object({
+  body: z.object({
+    stage: z.string().optional(),
+    manzana: z.string().optional(),
+    nomenclature: z.string().optional(),
+    lotNumber: z.string().min(1).optional(),
+    area: z.coerce.number({ invalid_type_error: 'El área debe ser un número' })
+      .positive('El área debe ser mayor a 0')
+      .optional(),
+    price: z.coerce.number({ invalid_type_error: 'El precio debe ser un número' })
+      .min(0, 'El precio no puede ser negativo')
+      .optional(),
+    propertyType: z.enum(['lotes', 'casas', 'apartamentos', 'locales']).optional(),
+    tower: z.string().optional(),
+    floor: z.string().optional(),
+    status: z.enum(['disponible', 'apartado', 'separado', 'vendido']).optional(),
+    maxInstallments: z.coerce.number().int().min(1).optional(),
+    images: z.array(z.string()).optional(),
+  })
+});
+

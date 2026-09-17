@@ -220,7 +220,7 @@ export const sendPaymentPlanEmail = async (client, quotas, contract, companyId) 
       <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 25px; border-radius: 10px;">
         <h2 style="color: #0284c7; text-align: center;">Tu Plan de Pagos - ${companyName}</h2>
         <p>Hola <strong>${client.name}</strong>,</p>
-        <p>A continuación adjuntamos el detalle de tu plan de pagos acordado para la compra de tu lote:</p>
+        <p>A continuación adjuntamos el detalle de tu plan de pagos acordado para la compra de tu inmueble:</p>
         
         <div style="margin: 25px 0;">
           <table style="width: 100%; border-collapse: collapse; text-align: left;">

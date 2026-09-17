@@ -78,6 +78,11 @@ const companySchema = new mongoose.Schema({
   projectLogo: {
     type: String,
   },
+  propertyType: {
+    type: String,
+    enum: ['lotes', 'casas', 'apartamentos', 'locales'],
+    default: 'lotes',
+  },
 }, {
   timestamps: true,
 });

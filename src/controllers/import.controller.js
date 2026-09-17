@@ -4,6 +4,8 @@ import Client from '../models/Client.js';
 import Lot from '../models/Lot.js';
 import Contract from '../models/Contract.js';
 import Quota from '../models/Quota.js';
+import Company from '../models/Company.js';
+import { buildUnitKey, buildNomenclature, missingIdentityFields, normalizePropertyType } from '../utils/propertyIdentifier.js';
 import { parseNumStringWithLocalization } from '../utils/math.js';
 import { parseExcelDate, formatDateSmall } from '../utils/date.js';
 
@@ -21,6 +23,12 @@ export const importExcel = async (req, res) => {
     const { tenantId, companyId } = req.user;
     const includeSiigo = req.query.includeSiigo !== 'false'; // Default true
     const createClientsWithoutName = req.query.createClientsWithoutName !== 'false'; // Default true
+
+    const company = await Company.findById(companyId).select('name propertyType');
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Empresa no encontrada' });
+    }
+    const companyPropertyType = normalizePropertyType(company.propertyType);
 
     // Read workbook from buffer
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
@@ -92,6 +100,13 @@ export const importExcel = async (req, res) => {
       const nom = (l.nomenclature || '').toString().trim().toLowerCase();
       const key = `${ref}|${nom}`;
       lotMap.set(key, l);
+      lotMap.set(buildUnitKey(l.propertyType || companyPropertyType, {
+        stage: l.stage,
+        manzana: l.manzana,
+        tower: l.tower,
+        floor: l.floor,
+        lotNumber: l.lotNumber,
+      }), l);
     });
 
     const clientByCedula = new Map();
@@ -122,25 +137,33 @@ export const importExcel = async (req, res) => {
         // New format uses 'NOMBRE', old format uses 'CLIENTE'
         const clienteNombre = getValMulti(row, 'CLIENTE', 'NOMBRE')?.toString().trim();
 
-        let nomenclature = getValMulti(row, 'NOMENCLATURA', 'Nomenclatura')?.toString() || undefined;
-        let reference = getValMulti(row, 'REFERENCIA', 'Referencia')?.toString().trim() || undefined;
+        const stage = getVal(row, 'ETAPA')?.toString().trim() || 'Desconocida';
         const manzana = getValMulti(row, 'MANZANA', 'Manzana', 'Block', 'block', 'Manzana (Block)')?.toString().trim() || undefined;
-        const lotNumber = getValMulti(row, 'LOTE', 'Lote', 'Nomenclatura')?.toString() || 'N/A';
-        
-        // If reference and nomenclature are not explicitly present, build them from MANZANA and LOTE
-        if (!reference && !nomenclature && (manzana || lotNumber !== 'N/A')) {
-          reference = `MZ_${manzana || '0'}_LT_${lotNumber}`;
-          nomenclature = `Mz ${manzana || '0'} Lt ${lotNumber}`;
-        }
+        const tower = getValMulti(row, 'TORRE', 'Torre', 'tower', 'BLOQUE', 'Bloque', 'EDIFICIO', 'Edificio')?.toString().trim() || undefined;
+        const floor = getValMulti(row, 'PISO', 'Piso', 'floor', 'NIVEL', 'Nivel')?.toString().trim() || undefined;
+        const lotNumber = getValMulti(
+          row,
+          'LOTE', 'Lote', 'CASA', 'Casa', 'APARTAMENTO', 'Apartamento', 'APTO', 'Apto', 'LOCAL', 'Local', 'UNIDAD', 'Unidad', 'Número'
+        )?.toString().trim() || 'N/A';
 
-        // Validation: If no reference or nomenclature, skip the row
-        if (!reference && !nomenclature) {
+        const referenceInput = getValMulti(row, 'REFERENCIA', 'Referencia')?.toString().trim() || undefined;
+        const nomenclatureInput = getValMulti(row, 'NOMENCLATURA', 'Nomenclatura')?.toString() || undefined;
+
+        if ((!lotNumber || lotNumber === 'N/A') && !referenceInput) {
           summary.rowsSkipped++;
           summary.rowsProcessed++;
           continue;
         }
 
-        const stage = getVal(row, 'ETAPA')?.toString() || 'Desconocida';
+        const identity = { stage, manzana, tower, floor, lotNumber };
+        const unitKey = buildUnitKey(companyPropertyType, identity);
+        const nomenclature = nomenclatureInput || (companyPropertyType === 'lotes'
+          ? `Mz ${manzana || '0'} Lt ${lotNumber}`
+          : buildNomenclature(companyPropertyType, identity));
+        const reference = referenceInput || (companyPropertyType === 'lotes'
+          ? `MZ_${manzana || '0'}_LT_${lotNumber}`
+          : unitKey);
+
         // Identification is by combination of reference and nomenclature
         const refClean = (reference || '').toString().trim().toLowerCase();
         const nomClean = (nomenclature || '').toString().trim().toLowerCase();
@@ -159,17 +182,23 @@ export const importExcel = async (req, res) => {
           lotStatus = 'apartado';
         }
 
-        let lot = lotMap.get(lotKey);
+        let lot = lotMap.get(unitKey) || lotMap.get(lotKey);
+        // New format: 'AREA TOTAL', old format: 'METROS 2'
+        const areaValue = parseNumStringWithLocalization(getValMulti(row, 'METROS 2', 'AREA TOTAL'));
+        // New format: 'VALOR TOTAL', old: 'VALOR DEL CONTRATO'
+        const priceValue = parseNumStringWithLocalization(getValMulti(row, 'VALOR TOTAL', 'VALOR DEL CONTRATO'));
         const lotData = {
           stage,
           manzana,
           nomenclature,
           lotNumber,
           reference,
-          // New format: 'AREA TOTAL', old format: 'METROS 2'
-          area: parseNumStringWithLocalization(getValMulti(row, 'METROS 2', 'AREA TOTAL')),
-          // New format: 'VALOR TOTAL', old: 'VALOR DEL CONTRATO'
-          price: parseNumStringWithLocalization(getValMulti(row, 'VALOR TOTAL', 'VALOR DEL CONTRATO')),
+          propertyType: companyPropertyType,
+          unitKey,
+          ...(tower && { tower }),
+          ...(floor && { floor }),
+          ...(areaValue > 0 && { area: areaValue }),
+          ...(priceValue > 0 && { price: priceValue }),
           status: lotStatus,
           isDeleted: false,
           deletedAt: undefined,
@@ -184,6 +213,7 @@ export const importExcel = async (req, res) => {
           const newId = new mongoose.Types.ObjectId();
           lot = { ...lotData, _id: newId };
           lotMap.set(lotKey, lot);
+          lotMap.set(unitKey, lot);
           lotOps.push({
             insertOne: { document: lot },
           });
@@ -504,6 +534,20 @@ export const exportExcel = async (req, res) => {
     const { tenantId, companyId } = req.user;
     console.log(`--- Iniciando Exportación Excel (Todos los lotes): Tenant ${tenantId}, Company ${companyId} ---`);
 
+    const company = await Company.findById(companyId).select('propertyType');
+    const companyPropertyType = normalizePropertyType(company?.propertyType);
+    const identityColumns = {
+      lotes: ['', 'ETAPA', 'MANZANA', 'LOTE'],
+      casas: ['', 'ETAPA', 'MANZANA', 'CASA'],
+      apartamentos: ['', 'ETAPA', 'TORRE', 'PISO', 'APARTAMENTO'],
+      locales: ['', 'ETAPA', 'LOCAL'],
+    }[companyPropertyType] || ['', 'ETAPA', 'MANZANA', 'LOTE'];
+    const identityValuesOf = (lot) => {
+      if (companyPropertyType === 'apartamentos') return ['', emptyIfEmpty(lot.stage), emptyIfEmpty(lot.tower), emptyIfEmpty(lot.floor), emptyIfEmpty(lot.lotNumber)];
+      if (companyPropertyType === 'locales') return ['', emptyIfEmpty(lot.stage), emptyIfEmpty(lot.lotNumber)];
+      return ['', emptyIfEmpty(lot.stage), emptyIfEmpty(lot.manzana), emptyIfEmpty(lot.lotNumber)];
+    };
+
     // 1. Fetch all Lots
     const lots = await Lot.find({ tenantId, companyId, isDeleted: { $ne: true } })
       .populate({
@@ -579,17 +623,20 @@ export const exportExcel = async (req, res) => {
         ? ((totalSiigo / contract.totalValue) * 100).toFixed(2)
         : 0;
 
+      const valorM2 = (lot.area && lot.area > 0)
+        ? Math.round(((contract?.totalValue || lot.price || 0) / lot.area) * 100) / 100
+        : '';
+
       // Create row as an array for AOA (Array of Arrays)
       const rowArr = [
-        emptyIfEmpty(lot.reference),
-        lot.excelRowId || contract?.excelRowId || client?.excelRowId || '',
-        emptyIfEmpty(lot.nomenclature),
-        emptyIfZero(lot.area),
+        ...identityValuesOf(lot),
         contract ? formatDate(contract.contractDate) : '',
+        emptyIfZero(lot.area),
         contract ? (contract.status || 'FIRMADO') : 'DISPONIBLE', // CONTRATOS
         contract ? emptyIfEmpty(contract.appendix) : '',
         contract ? emptyIfEmpty(contract.negotiation) : '',
         contract ? emptyIfZero(contract.totalValue) : emptyIfZero(lot.price),
+        valorM2,
         contract ? emptyIfEmpty(contract.commercial) : '',
         emptyIfEmpty(client?.idNumber),
         emptyIfEmpty(client?.expeditionPlace),
@@ -646,17 +693,13 @@ export const exportExcel = async (req, res) => {
       exportData.push(rowArr);
     }
     
-    // Sort by row number (#) or Reference if # is missing
-    exportData.sort((a, b) => {
-      const valA = parseInt(a[1]) || a[0] || '';
-      const valB = parseInt(b[1]) || b[0] || '';
-      if (typeof valA === 'number' && typeof valB === 'number') return valA - valB;
-      return String(valA).localeCompare(String(valB));
-    });
+    // Sort by Etapa, Manzana, Torre/Piso y Unidad
+    const sortKeyOf = (row) => row.slice(1, identityColumns.length).map((x) => String(x === undefined || x === null ? '' : x)).join('|');
+    exportData.sort((a, b) => sortKeyOf(a).localeCompare(sortKeyOf(b), undefined, { numeric: true }));
 
     // Define the headers exactly as requested
     const headers = [
-      'Referencia', '#', 'Nomenclatura', 'AREA TOTAL', 'FECHA CONTRATO (SELECCIONAR)', 'CONTRATOS', 'OTRO SI', 'NEGOCIACIÓN', 'VALOR TOTAL', 'ASESOR', 'CEDULA', 'LUGAR DE EXPEDICIÓN', 'NOMBRE', 'DIRECCIÓN', 'CORREO ELECTRONICO', 'TELEFONO N1', 'TELEFONO N2', 'NUMERO DE CUOTAS ', 'FECHA INICIO CUOTAS', 'VALOR CUOTA', 'DIA DE PAGO', 'BONO', 'VALOR BONO', '# CUOTA INICIAL', 'CUOTA INICIAL 1', 'METODO DE PAGO', 'CUOTA INICIAL 2', 'METODO DE PAGO', 'CUOTA INICIAL 3', 'METODO DE PAGO', 'CUOTA INICIAL CONSOLIDADA', 'METODO DE PAGO'
+      ...identityColumns, 'FECHA CONTRATO (SELECCIONAR)', 'AREA TOTAL', 'CONTRATOS', 'OTRO SI', 'NEGOCIACIÓN', 'VALOR TOTAL', 'VALOR M2', 'ASESOR', 'CEDULA', 'LUGAR DE EXPEDICIÓN', 'NOMBRE', 'DIRECCIÓN', 'CORREO ELECTRONICO', 'TELEFONO N1', 'TELEFONO N2', 'NUMERO DE CUOTAS ', 'FECHA INICIO CUOTAS', 'VALOR CUOTA', 'DIA DE PAGO', 'BONO', 'VALOR BONO', '# CUOTA INICIAL', 'CUOTA INICIAL 1', 'METODO DE PAGO', 'CUOTA INICIAL 2', 'METODO DE PAGO', 'CUOTA INICIAL 3', 'METODO DE PAGO', 'CUOTA INICIAL CONSOLIDADA', 'METODO DE PAGO'
     ];
     for (let j = 1; j <= 30; j++) {
       headers.push(`CUOTA #${j}`, 'METODO DE PAGO');
@@ -701,8 +744,22 @@ export const exportExcel = async (req, res) => {
 export const downloadTemplate = async (req, res) => {
   try {
     // Define the headers exactly as in exportExcel
+    const propertyType = normalizePropertyType(req.query.propertyType);
+    const identityColumns = {
+      lotes: ['', 'ETAPA', 'MANZANA', 'LOTE'],
+      casas: ['', 'ETAPA', 'MANZANA', 'CASA'],
+      apartamentos: ['', 'ETAPA', 'TORRE', 'PISO', 'APARTAMENTO'],
+      locales: ['', 'ETAPA', 'LOCAL'],
+    }[propertyType] || ['', 'ETAPA', 'MANZANA', 'LOTE'];
+    const identitySample = {
+      lotes: ['', 'Etapa 1', 'Mz A', 'Lote 5'],
+      casas: ['', 'Etapa 1', 'Mz A', 'Casa 5'],
+      apartamentos: ['', 'Etapa 1', 'Torre A', '3', '301'],
+      locales: ['', 'Centro Comercial Plaza', '102-1'],
+    }[propertyType] || ['', 'Etapa 1', 'Mz A', 'Lote 5'];
+
     const headers = [
-      'Referencia', '#', 'Nomenclatura', 'AREA TOTAL', 'FECHA CONTRATO (SELECCIONAR)', 'CONTRATOS', 'OTRO SI', 'NEGOCIACIÓN', 'VALOR TOTAL', 'ASESOR', 'CEDULA', 'LUGAR DE EXPEDICIÓN', 'NOMBRE', 'DIRECCIÓN', 'CORREO ELECTRONICO', 'TELEFONO N1', 'TELEFONO N2', 'NUMERO DE CUOTAS ', 'FECHA INICIO CUOTAS', 'VALOR CUOTA', 'DIA DE PAGO', 'BONO', 'VALOR BONO', '# CUOTA INICIAL', 'CUOTA INICIAL 1', 'METODO DE PAGO', 'CUOTA INICIAL 2', 'METODO DE PAGO', 'CUOTA INICIAL 3', 'METODO DE PAGO', 'CUOTA INICIAL CONSOLIDADA', 'METODO DE PAGO'
+      ...identityColumns, 'FECHA CONTRATO (SELECCIONAR)', 'AREA TOTAL', 'CONTRATOS', 'OTRO SI', 'NEGOCIACIÓN', 'VALOR TOTAL', 'VALOR M2', 'ASESOR', 'CEDULA', 'LUGAR DE EXPEDICIÓN', 'NOMBRE', 'DIRECCIÓN', 'CORREO ELECTRONICO', 'TELEFONO N1', 'TELEFONO N2', 'NUMERO DE CUOTAS ', 'FECHA INICIO CUOTAS', 'VALOR CUOTA', 'DIA DE PAGO', 'BONO', 'VALOR BONO', '# CUOTA INICIAL', 'CUOTA INICIAL 1', 'METODO DE PAGO', 'CUOTA INICIAL 2', 'METODO DE PAGO', 'CUOTA INICIAL 3', 'METODO DE PAGO', 'CUOTA INICIAL CONSOLIDADA', 'METODO DE PAGO'
     ];
     for (let j = 1; j <= 30; j++) {
       headers.push(`CUOTA #${j}`, 'METODO DE PAGO');
@@ -713,7 +770,7 @@ export const downloadTemplate = async (req, res) => {
 
     // Sample data row
     const row = [
-      'REF-001', 1, 'Mz A Lote 5', 100, '15-01-24', 'FIRMADO', '', 'Crédito Directo', 25000000, 'Asesor 1', '12345678', 'Bogotá', 'Juan Pérez', 'Calle 123', 'juan@email.com', '3101234567', '', 24, '01-02-24', 1000000, 5, 'Bono 1', 500000, 3, 200000, 'Efectivo', 200000, 'Transferencia', 200000, 'Efectivo', 600000, ''
+      ...identitySample, '15-01-24', 100, 'FIRMADO', '', 'Crédito Directo', 25000000, 375000, 'Asesor 1', '12345678', 'Bogotá', 'Juan Pérez', 'Calle 123', 'juan@email.com', '3101234567', '', 24, '01-02-24', 1000000, 5, 'Bono 1', 500000, 3, 200000, 'Efectivo', 200000, 'Transferencia', 200000, 'Efectivo', 600000, ''
     ];
     // Sample quotas
     for (let j = 1; j <= 30; j++) {
@@ -754,18 +811,40 @@ export const downloadTemplate = async (req, res) => {
  */
 export const downloadLotsOnlyTemplate = async (req, res) => {
   try {
-    const headers = ['Etapa', 'Manzana', 'Lote', 'Area', 'Valor Metro Cuadrado'];
-    const row = ['Etapa 1', 'Mz A', 'Lote 5', 120, 375000];
+    const propertyType = req.query.propertyType || 'lotes';
+    
+    let headers, row;
+    switch (propertyType) {
+      case 'apartamentos':
+        headers = ['Etapa', 'Torre', 'Piso', 'Apartamento', 'Area', 'Valor Metro Cuadrado'];
+        row = ['Etapa 1', 'Torre A', '3', '301', 65, 4500000];
+        break;
+      case 'casas':
+        headers = ['Etapa', 'Manzana', 'Casa', 'Area', 'Valor Metro Cuadrado'];
+        row = ['Etapa 1', 'Mz A', 'Casa 5', 120, 3750000];
+        break;
+      case 'locales':
+        headers = ['Etapa', 'Local', 'Area', 'Valor Metro Cuadrado'];
+        row = ['Centro Comercial Plaza', '102-1', 45, 6000000];
+        break;
+      default: // lotes
+        headers = ['Etapa', 'Manzana', 'Lote', 'Area', 'Valor Metro Cuadrado'];
+        row = ['Etapa 1', 'Mz A', 'Lote 5', 120, 375000];
+        break;
+    }
+    
     const templateData = [headers, row];
 
     const worksheet = XLSX.utils.aoa_to_sheet(templateData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla Lotes');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla Inventario');
     
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
     
+    const labelMap = { lotes: 'lotes', casas: 'casas', apartamentos: 'apartamentos', locales: 'locales' };
+    const fileName = `plantilla-${labelMap[propertyType] || 'inventario'}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=plantilla-lotes.xlsx');
+    res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
     res.send(buffer);
   } catch (error) {
     console.error('Template error:', error);
@@ -790,6 +869,12 @@ export const importLotsOnly = async (req, res) => {
 
     const { tenantId, companyId } = req.user;
 
+    const company = await Company.findById(companyId).select('name propertyType');
+    if (!company) {
+      return res.status(404).json({ success: false, message: 'Empresa no encontrada' });
+    }
+    const companyPropertyType = normalizePropertyType(company.propertyType);
+
     // Read workbook from buffer
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
     const sheetName = workbook.SheetNames[0];
@@ -804,6 +889,8 @@ export const importLotsOnly = async (req, res) => {
       lotsUpdated: 0,
       rowsProcessed: 0,
       rowsSkipped: 0,
+      duplicatesInFile: 0,
+      archivedSkipped: 0,
     };
 
     let errors = [];
@@ -848,21 +935,46 @@ export const importLotsOnly = async (req, res) => {
       const s = (l.stage || '').toString().trim().toLowerCase();
       const m = (l.manzana || '').toString().trim().toLowerCase();
       const num = (l.lotNumber || '').toString().trim().toLowerCase();
-      lotMap.set(`${s}|${m}|${num}`, l);
+      const tw = (l.tower || '').toString().trim().toLowerCase();
+      const fl = (l.floor || '').toString().trim().toLowerCase();
+      lotMap.set(`${s}|${m}|${tw}|${fl}|${num}`, l);
+
+      lotMap.set(buildUnitKey(l.propertyType || companyPropertyType, {
+        stage: l.stage,
+        manzana: l.manzana,
+        tower: l.tower,
+        floor: l.floor,
+        lotNumber: l.lotNumber,
+      }), l);
     });
 
     const lotOps = [];
+    const seenUnitKeys = new Map();
 
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       const rowNum = i + 2;
 
       try {
+        const rowTypeRaw = getValMulti(row, 'TIPO', 'Tipo', 'TIPO PROPIEDAD', 'TIPO DE INMUEBLE', 'TIPO_INMUEBLE', 'tipo');
+        const rowType = rowTypeRaw ? normalizePropertyType(rowTypeRaw, companyPropertyType) : companyPropertyType;
+        if (rowTypeRaw && rowType !== companyPropertyType) {
+          errors.push(`Fila ${rowNum}: el tipo "${rowTypeRaw}" no coincide con el tipo del proyecto (${companyPropertyType}).`);
+          summary.rowsSkipped++;
+          summary.rowsProcessed++;
+          continue;
+        }
+
         const stage = getValMulti(row, 'Etapa', 'stage', 'etapa', 'Etapa (Stage)')?.toString().trim() || 'Desconocida';
         const manzana = getValMulti(row, 'Manzana', 'block', 'manzana', 'Manzana (Block)')?.toString().trim() || '';
-        const lotNumber = getValMulti(row, 'Lote', 'lote', 'lot', 'lotNumber', 'Número de lote')?.toString().trim();
-        
-        if (!lotNumber) {
+        const lotNumber = getValMulti(row, 'Lote', 'lote', 'lot', 'lotNumber', 'Número de lote', 'Número', 'Apartamento', 'Local', 'Casa')?.toString().trim();
+        const tower = getValMulti(row, 'Torre', 'tower')?.toString().trim() || '';
+        const floor = getValMulti(row, 'Piso', 'floor')?.toString().trim() || '';
+
+        const identity = { stage, manzana, tower, floor, lotNumber };
+        const missing = missingIdentityFields(companyPropertyType, identity);
+        if (!lotNumber || missing.length > 0) {
+          errors.push(`Fila ${rowNum}: faltan campos obligatorios (${missing.length > 0 ? missing.join(', ') : 'lotNumber'}).`);
           summary.rowsSkipped++;
           summary.rowsProcessed++;
           continue;
@@ -872,20 +984,42 @@ export const importLotsOnly = async (req, res) => {
         const area = parseNumStringWithLocalization(getValMulti(row, 'Area', 'área', 'area', 'Área (m²)'));
         const pricePerM2 = parseNumStringWithLocalization(getValMulti(row, 'Valor Metro Cuadrado', 'Valor por metro cuadrado', 'Valor M2', 'pricePerM2', 'Valor metro cuadrado'));
 
-        if (area && pricePerM2) {
+        if (area > 0 && pricePerM2 > 0) {
           price = area * pricePerM2;
         }
 
-        // Generate nomenclature and reference
-        const nomenclature = manzana ? `Mz ${manzana} Lote ${lotNumber}` : `Lote ${lotNumber}`;
-        const reference = `${stage}-${manzana}-${lotNumber}`;
+        if (!(area > 0)) {
+          errors.push(`Fila ${rowNum}: el área debe ser mayor a 0.`);
+          summary.rowsSkipped++;
+          summary.rowsProcessed++;
+          continue;
+        }
+
+        const unitKey = buildUnitKey(companyPropertyType, identity);
+        if (seenUnitKeys.has(unitKey)) {
+          errors.push(`Fila ${rowNum}: duplicado en el archivo, ya aparece en la fila ${seenUnitKeys.get(unitKey)} (${unitKey}).`);
+          summary.duplicatesInFile++;
+          summary.rowsProcessed++;
+          continue;
+        }
+        seenUnitKeys.set(unitKey, rowNum);
+
+        const nomenclature = buildNomenclature(companyPropertyType, identity);
+        const reference = `${stage}-${manzana || tower || '0'}-${lotNumber}`;
 
         const refClean = reference.toLowerCase();
         const nomClean = nomenclature.toLowerCase();
         const lotKey = `${refClean}|${nomClean}`;
-        const naturalKey = `${stage.toLowerCase()}|${manzana.toLowerCase()}|${lotNumber.toLowerCase()}`;
+        const naturalKey = `${stage.toLowerCase()}|${manzana.toLowerCase()}|${tower.toLowerCase()}|${floor.toLowerCase()}|${lotNumber.toLowerCase()}`;
 
-        let lot = lotMap.get(lotKey) || lotMap.get(naturalKey);
+        let lot = lotMap.get(unitKey) || lotMap.get(lotKey) || lotMap.get(naturalKey);
+
+        if (lot && lot.isDeleted) {
+          warnings.push(`Fila ${rowNum}: el inmueble "${lot.nomenclature || lotNumber}" está archivado; se omite (restáurelo o elimínelo primero).`);
+          summary.archivedSkipped++;
+          summary.rowsProcessed++;
+          continue;
+        }
 
         const lotData = {
           stage,
@@ -893,13 +1027,13 @@ export const importLotsOnly = async (req, res) => {
           nomenclature,
           lotNumber,
           reference,
-          area: area || undefined,
-          price: price || undefined,
+          propertyType: companyPropertyType,
+          unitKey,
+          area,
+          ...(price > 0 && { price }),
           status: lot?.status || 'disponible',
-          isDeleted: false,
-          deletedAt: undefined,
-          deletedBy: undefined,
-          deletedReason: undefined,
+          ...(tower && { tower }),
+          ...(floor && { floor }),
           tenantId,
           companyId,
           excelRowId: rowNum,
@@ -907,7 +1041,8 @@ export const importLotsOnly = async (req, res) => {
 
         if (!lot) {
           const newId = new mongoose.Types.ObjectId();
-          lot = { ...lotData, _id: newId };
+          lot = { ...lotData, _id: newId, isDeleted: false };
+          lotMap.set(unitKey, lot);
           lotMap.set(lotKey, lot);
           lotOps.push({
             insertOne: { document: lot },

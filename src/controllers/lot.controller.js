@@ -7,6 +7,7 @@ import { uploadToR2 } from '../utils/storage.js';
 import { logAudit } from '../utils/auditLogger.js';
 import { roundMoney } from '../utils/math.js';
 import { checkLotExpirations } from '../utils/lotExpiration.js';
+import { buildUnitKey, buildNomenclature, normalizePropertyType } from '../utils/propertyIdentifier.js';
 
 export const createLot = async (req, res, next) => {
   try {
@@ -23,22 +24,57 @@ export const createLot = async (req, res, next) => {
       status,
       excelRowId,
       maxInstallments,
+      propertyType,
+      tower,
+      floor,
     } = req.body;
 
-    const lot = await Lot.create({
-      stage,
-      manzana,
-      nomenclature,
-      lotNumber,
-      area,
-      price,
-      images: images || [],
-      status: status || 'disponible',
-      maxInstallments: maxInstallments !== undefined && maxInstallments !== '' ? parseInt(maxInstallments) : 24,
-      excelRowId,
-      tenantId,
-      companyId,
-    });
+    const resolvedPropertyType = normalizePropertyType(propertyType);
+    const resolvedNomenclature = nomenclature && String(nomenclature).trim()
+      ? String(nomenclature).trim()
+      : buildNomenclature(resolvedPropertyType, { stage, manzana, tower, floor, lotNumber });
+    const unitKey = buildUnitKey(resolvedPropertyType, { stage, manzana, tower, floor, lotNumber });
+
+    const duplicate = await Lot.findOne({ tenantId, companyId, unitKey, isDeleted: { $ne: true } });
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        code: 'DUPLICATE_UNIT',
+        message: `Ya existe un inmueble activo con la misma identidad: ${duplicate.nomenclature || lotNumber}`,
+        data: { lotId: duplicate._id, nomenclature: duplicate.nomenclature || null },
+      });
+    }
+
+    let lot;
+    try {
+      lot = await Lot.create({
+        stage,
+        manzana,
+        nomenclature: resolvedNomenclature,
+        lotNumber,
+        area,
+        price,
+        images: images || [],
+        status: status || 'disponible',
+        maxInstallments: maxInstallments !== undefined && maxInstallments !== '' ? parseInt(maxInstallments) : 24,
+        excelRowId,
+        tenantId,
+        companyId,
+        propertyType: resolvedPropertyType,
+        unitKey,
+        ...(tower && { tower }),
+        ...(floor && { floor }),
+      });
+    } catch (error) {
+      if (error.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          code: 'DUPLICATE_UNIT',
+          message: 'Ya existe un inmueble activo con el mismo identificador.',
+        });
+      }
+      throw error;
+    }
 
     await logAudit(req, {
       action: 'CREATE_LOT',
@@ -267,26 +303,58 @@ export const updateLot = async (req, res, next) => {
       images, 
       status,
       maxInstallments,
+      propertyType,
+      tower,
+      floor,
     } = req.body;
 
-    const lot = await Lot.findByIdAndUpdate(
-      req.params.id, 
-      { 
-        stage, 
-        manzana,
-        nomenclature, 
-        lotNumber, 
-        area, 
-        price, 
-        images, 
-        status,
-        maxInstallments: maxInstallments !== undefined && maxInstallments !== '' ? parseInt(maxInstallments) : 24,
-      }, 
-      {
-        new: true,
-        runValidators: true,
-      },
-    );
+    const assignments = { stage, manzana, nomenclature, lotNumber, area, price, images, status, propertyType, tower, floor };
+    for (const [field, value] of Object.entries(assignments)) {
+      if (value !== undefined) existingLot[field] = value;
+    }
+    if (maxInstallments !== undefined && maxInstallments !== '') {
+      existingLot.maxInstallments = parseInt(maxInstallments);
+    }
+
+    const resolvedPropertyType = normalizePropertyType(existingLot.propertyType);
+    const unitKey = buildUnitKey(resolvedPropertyType, {
+      stage: existingLot.stage,
+      manzana: existingLot.manzana,
+      tower: existingLot.tower,
+      floor: existingLot.floor,
+      lotNumber: existingLot.lotNumber,
+    });
+
+    const duplicate = await Lot.findOne({
+      _id: { $ne: existingLot._id },
+      companyId: existingLot.companyId,
+      unitKey,
+      isDeleted: { $ne: true },
+    });
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        code: 'DUPLICATE_UNIT',
+        message: `Ya existe un inmueble activo con la misma identidad: ${duplicate.nomenclature || duplicate.lotNumber || ''}`,
+        data: { lotId: duplicate._id, nomenclature: duplicate.nomenclature || null },
+      });
+    }
+
+    existingLot.unitKey = unitKey;
+
+    let lot;
+    try {
+      lot = await existingLot.save();
+    } catch (error) {
+      if (error.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          code: 'DUPLICATE_UNIT',
+          message: 'Ya existe un inmueble activo con el mismo identificador.',
+        });
+      }
+      throw error;
+    }
 
     await logAudit(req, {
       action: 'UPDATE_LOT',
@@ -397,6 +465,30 @@ export const restoreLot = async (req, res, next) => {
       });
     }
 
+    const resolvedPropertyType = normalizePropertyType(lot.propertyType);
+    const unitKey = lot.unitKey || buildUnitKey(resolvedPropertyType, {
+      stage: lot.stage,
+      manzana: lot.manzana,
+      tower: lot.tower,
+      floor: lot.floor,
+      lotNumber: lot.lotNumber,
+    });
+
+    const duplicate = await Lot.findOne({
+      _id: { $ne: lot._id },
+      companyId: lot.companyId,
+      unitKey,
+      isDeleted: { $ne: true },
+    });
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        code: 'DUPLICATE_UNIT',
+        message: `No se puede restaurar: ya existe un inmueble activo con la misma identidad (${duplicate.nomenclature || duplicate.lotNumber || 'sin nomenclatura'}).`,
+        data: { lotId: duplicate._id, nomenclature: duplicate.nomenclature || null },
+      });
+    }
+
     lot.isDeleted = false;
     lot.deletedAt = undefined;
     lot.deletedBy = undefined;
@@ -485,7 +577,7 @@ export const getLotsPublic = async (req, res, next) => {
     }
 
     const lots = await Lot.find(query)
-      .select('stage nomenclature lotNumber area price status images')
+      .select('stage nomenclature lotNumber area price status images manzana propertyType tower floor')
       .sort({ stage: 1, lotNumber: 1 })
       .lean();
 

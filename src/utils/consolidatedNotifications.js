@@ -68,7 +68,7 @@ export const sendConsolidatedPaymentNotifications = async (req, paidQuotaIds, co
         <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #eee; padding: 25px; border-radius: 10px;">
           <h2 style="color: #22c55e; text-align: center;">¡Pago Recibido Exitosamente!</h2>
           <p>Hola <strong>${client.name}</strong>,</p>
-          <p>Hemos procesado y aprobado un pago para tu lote en <strong>${companyName}</strong>. A continuación, te presentamos el resumen consolidado de las cuotas cubiertas por este pago:</p>
+          <p>Hemos procesado y aprobado un pago para tu inmueble en <strong>${companyName}</strong>. A continuación, te presentamos el resumen consolidado de las cuotas cubiertas por este pago:</p>
           
           <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px;">
             <thead>

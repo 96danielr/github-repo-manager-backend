@@ -83,7 +83,7 @@ const buildUserResponse = (account, membership) => {
  */
 export const register = async (req, res, next) => {
   try {
-    const { fullName, email, password, tenantName, companyName } = req.body;
+    const { fullName, email, password, tenantName, companyName, propertyType } = req.body;
 
     // Check if account already exists
     const existingAccount = await UserAccount.findOne({ email });
@@ -116,7 +116,8 @@ export const register = async (req, res, next) => {
     const company = await Company.create({
       tenantId: tenant._id,
       name: resolvedCompanyName,
-      slug: `${baseSlug}-${Date.now().toString().slice(-4)}`
+      slug: `${baseSlug}-${Date.now().toString().slice(-4)}`,
+      propertyType: propertyType || 'lotes',
     });
 
     // Generate tokens

@@ -20,7 +20,8 @@ export const createTenantWithAdmin = async (req, res, next) => {
       documentoIdentidad, 
       tenantAddress, 
       tenantPhone, 
-      tenantEmail 
+      tenantEmail,
+      propertyType
     } = req.body;
 
     if (!tenantName || !fullName || !email || !password) {
@@ -68,6 +69,7 @@ export const createTenantWithAdmin = async (req, res, next) => {
       address: tenantAddress,
       phone: tenantPhone,
       email: tenantEmail,
+      propertyType: propertyType || 'lotes',
     });
 
     res.status(201).json({

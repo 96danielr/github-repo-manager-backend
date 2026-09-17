@@ -500,14 +500,14 @@ export const getAdvancedReports = async (req, res, next) => {
     for (const item of delinquentContractsAggregate) {
       const contract = await Contract.findById(item._id)
         .populate({ path: 'client', select: 'name idNumber phone email' })
-        .populate({ path: 'lot', select: 'number stage manzana nomenclatura' });
+        .populate({ path: 'lot', select: 'lotNumber stage manzana nomenclatura propertyType tower floor' });
       
       if (contract && contract.client) {
         delinquentClients.push({
           clientId: contract.client._id,
           clientName: contract.client.name,
           clientDocument: contract.client.idNumber,
-          lotNumber: contract.lot ? contract.lot.number : 'N/A',
+          lotNumber: contract.lot ? contract.lot.lotNumber : 'N/A',
           lotStage: contract.lot ? contract.lot.stage : 'N/A',
           lateAmount: item.lateAmount,
           lateQuotasCount: item.lateQuotasCount
@@ -570,14 +570,14 @@ export const getAdvancedReports = async (req, res, next) => {
       if (item.paidQuotasCount === 0) continue; // Skip contracts with no payments
       const contract = await Contract.findById(item._id)
         .populate({ path: 'client', select: 'name idNumber phone email' })
-        .populate({ path: 'lot', select: 'number stage' });
+        .populate({ path: 'lot', select: 'lotNumber stage propertyType tower floor' });
 
       if (contract && contract.client) {
         bestClients.push({
           clientId: contract.client._id,
           clientName: contract.client.name,
           clientDocument: contract.client.idNumber,
-          lotNumber: contract.lot ? contract.lot.number : 'N/A',
+          lotNumber: contract.lot ? contract.lot.lotNumber : 'N/A',
           lotStage: contract.lot ? contract.lot.stage : 'N/A',
           onTimeRate: item.onTimeRate,
           paidQuotasCount: item.paidQuotasCount,

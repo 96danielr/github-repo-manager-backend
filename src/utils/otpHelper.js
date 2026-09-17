@@ -31,7 +31,7 @@ export const sendOTPCode = async (tenantId, companyId, clientId, type, destinati
       <div style="font-family: Arial, sans-serif; color: #333; max-width: 500px; margin: 0 auto; border: 1px solid #eee; padding: 20px; border-radius: 8px;">
         <h3 style="color: #0284c7; text-align: center;">Código de Seguridad</h3>
         <p>Hola,</p>
-        <p>Has solicitado acceder al reporte de pago de tu lote. Usa el siguiente código de verificación:</p>
+        <p>Has solicitado acceder al reporte de pago de tu inmueble. Usa el siguiente código de verificación:</p>
         <div style="text-align: center; margin: 25px 0;">
           <span style="font-family: monospace; font-size: 28px; font-weight: bold; background: #f1f5f9; padding: 10px 20px; border-radius: 6px; letter-spacing: 4px; border: 1px solid #cbd5e1;">${code}</span>
         </div>

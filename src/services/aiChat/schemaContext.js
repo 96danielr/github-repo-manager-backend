@@ -10,16 +10,20 @@
 export const COLLECTIONS_SCHEMA = `
 ## Colecciones disponibles en MongoDB (Mongoose)
 
-### lots (Lotes)
+### lots (Inventario de inmuebles: lotes, casas, apartamentos, locales)
 - _id: ObjectId
 - tenantId: ObjectId (referencia a Tenant)
 - companyId: ObjectId (referencia a Company)
 - stage: String (etapa del proyecto)
+- manzana: String (manzana o bloque)
 - nomenclature: String (nomenclatura)
-- lotNumber: String (número de lote)
+- lotNumber: String (número de identificación de la unidad)
 - area: Number (metros cuadrados)
-- price: Number (precio del lote)
-- status: String (enum: "disponible", "vendido")
+- price: Number (precio del inmueble)
+- status: String (enum: "disponible", "vendido", "apartado")
+- propertyType: String (enum: "lotes", "casas", "apartamentos", "locales")
+- tower: String (torre, solo para apartamentos)
+- floor: String (piso, solo para apartamentos)
 - sellerId: ObjectId (referencia a User, vendedor asignado)
 - createdAt: Date
 - updatedAt: Date

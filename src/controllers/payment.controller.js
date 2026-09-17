@@ -839,7 +839,7 @@ export const exportSiigoExcel = async (req, res, next) => {
         path: 'contractId',
         populate: [
           { path: 'client', select: 'name idNumber' },
-          { path: 'lot', select: 'number stage manzana' },
+          { path: 'lot', select: 'lotNumber stage manzana propertyType tower floor' },
           { path: 'companyId', select: 'name' }
         ]
       })
