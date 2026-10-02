@@ -310,6 +310,10 @@ export const importExcel = async (req, res) => {
           const contractKey = `${client._id}|${lot._id}`;
           let contract = contractMap.get(contractKey);
           
+          const siigo2024Raw = getValMulti(row, 'RECAUDO REPORTADO EN SIIGO 2024', 'RECAUDADO SIIGO 2024');
+          const siigo2025Raw = getValMulti(row, 'RECAUDO REPORTADO EN SIIGO 2025', 'RECAUDADO SIIGO 2025');
+          const revisadoPorRaw = getValMulti(row, 'REVISADO POR');
+
           const contractInfo = {
             client: client._id,
             lot: lot._id,
@@ -330,9 +334,11 @@ export const importExcel = async (req, res) => {
             bonusValue: parseNumStringWithLocalization(getVal(row, 'VALOR BONO')),
             // New format: 'ASESOR', old: 'COMERCIAL'
             commercial: getValMulti(row, 'COMERCIAL', 'ASESOR'),
-            recaudadoSiigo2024: parseNumStringWithLocalization(getValMulti(row, 'RECAUDO REPORTADO EN SIIGO 2024', 'RECAUDADO SIIGO 2024')) || 0,
-            recaudadoSiigo2025: parseNumStringWithLocalization(getValMulti(row, 'RECAUDO REPORTADO EN SIIGO 2025', 'RECAUDADO SIIGO 2025')) || 0,
-            revisadoPor: getValMulti(row, 'REVISADO POR'),
+            // Legacy columns: only written when present in the file, so templates
+            // without them don't overwrite values already stored on the contract.
+            ...(siigo2024Raw !== undefined && { recaudadoSiigo2024: parseNumStringWithLocalization(siigo2024Raw) || 0 }),
+            ...(siigo2025Raw !== undefined && { recaudadoSiigo2025: parseNumStringWithLocalization(siigo2025Raw) || 0 }),
+            ...(revisadoPorRaw !== undefined && { revisadoPor: revisadoPorRaw }),
             // New format: 'Proceso Juridico', old: 'REQUERIMIENTO JURIDICO'
             juridicalRequirement: getValMulti(row, 'REQUERIMIENTO JURIDICO', 'Proceso Juridico'),
             observations: getVal(row, 'OBSERVACIONES'),
@@ -617,12 +623,6 @@ export const exportExcel = async (req, res) => {
         ? ((totalRecaudado / contract.totalValue) * 100).toFixed(2)
         : 0;
         
-      const totalSiigo = contract ? ((contract.recaudadoSiigo2024 || 0) + (contract.recaudadoSiigo2025 || 0)) : 0;
-      const porRecaudarSiigo = contract ? Math.max(0, contract.totalValue - totalSiigo) : 0;
-      const percentageRecaudoSiigo = (contract && contract.totalValue > 0)
-        ? ((totalSiigo / contract.totalValue) * 100).toFixed(2)
-        : 0;
-
       const valorM2 = (lot.area && lot.area > 0)
         ? Math.round(((contract?.totalValue || lot.price || 0) / lot.area) * 100) / 100
         : '';
@@ -676,17 +676,9 @@ export const exportExcel = async (req, res) => {
       rowArr.push(
         contract ? emptyIfZero(totalRecaudado) : '', // RECAUDADO
         contract ? emptyIfZero(totalPorRecaudar) : '', // POR RECAUDAR
-        contract ? emptyIfZero(totalSiigo) : '', // RECAUDADO REPORTADO MATRIZ
-        contract ? emptyIfZero(porRecaudarSiigo) : '', // POR RECAUDAR REPORTADO MATRIZ
-        contract ? emptyIfZero(contract.recaudadoSiigo2024) : '', // RECAUDO REPORTADO EN SIIGO 2024
-        contract ? emptyIfZero(contract.recaudadoSiigo2025) : '', // RECAUDO REPORTADO EN SIIGO 2025
-        contract ? emptyIfZero(totalSiigo) : '', // RECAUDO REPORTADO EN SIIGO A LA FECHA
-        contract ? emptyIfZero(porRecaudarSiigo) : '', // POR RECAUDAR SIIGO
-        contract ? `${percentageRecaudoSiigo}%` : '', // % RECAUDO
-        contract ? emptyIfEmpty(contract.revisadoPor) : '', // REVISADO POR
+        contract ? `${percentageRecaudo}%` : '', // % RECAUDO
         emptyIfEmpty(client?.behavior),
         contract ? emptyIfEmpty(contract.juridicalRequirement) : '',
-        contract ? `${percentageRecaudo}%` : '', // PORCENTAJE%
         contract ? emptyIfEmpty(contract.observations) : (lot.status !== 'disponible' ? emptyIfEmpty(lot.reservationDetails) : '')
       );
 
@@ -705,7 +697,7 @@ export const exportExcel = async (req, res) => {
       headers.push(`CUOTA #${j}`, 'METODO DE PAGO');
     }
     headers.push(
-      'RECAUDADO', 'POR RECAUDAR', 'RECAUDADO REPORTADO MATRIZ', 'POR RECAUDAR REPORTADO MATRIZ', 'RECAUDO REPORTADO EN SIIGO 2024', 'RECAUDO REPORTADO EN SIIGO 2025', 'RECAUDO REPORTADO EN SIIGO A LA FECHA', 'POR RECAUDAR SIIGO', '% RECAUDO', 'REVISADO POR', 'Comportamiento Cliente', 'Proceso Juridico', 'PORCENTAJE%', 'OBSERVACIONES'
+      'RECAUDADO', 'POR RECAUDAR', '% RECAUDO', 'Comportamiento Cliente', 'Proceso Juridico', 'OBSERVACIONES'
     );
 
     // 3. Create workbook and sheet
@@ -765,7 +757,7 @@ export const downloadTemplate = async (req, res) => {
       headers.push(`CUOTA #${j}`, 'METODO DE PAGO');
     }
     headers.push(
-      'RECAUDADO', 'POR RECAUDAR', 'RECAUDADO REPORTADO MATRIZ', 'POR RECAUDAR REPORTADO MATRIZ', 'RECAUDO REPORTADO EN SIIGO 2024', 'RECAUDO REPORTADO EN SIIGO 2025', 'RECAUDO REPORTADO EN SIIGO A LA FECHA', 'POR RECAUDAR SIIGO', '% RECAUDO', 'REVISADO POR', 'Comportamiento Cliente', 'Proceso Juridico', 'PORCENTAJE%', 'OBSERVACIONES'
+      'RECAUDADO', 'POR RECAUDAR', '% RECAUDO', 'Comportamiento Cliente', 'Proceso Juridico', 'OBSERVACIONES'
     );
 
     // Sample data row
@@ -777,7 +769,7 @@ export const downloadTemplate = async (req, res) => {
       row.push(j <= 6 ? 1000000 : '', j <= 6 ? 'Efectivo' : '');
     }
     // Sample trailing fields
-    row.push(6000000, 19000000, 0, 19000000, 0, 0, 0, 19000000, '0%', 'REVISOR 1', 'Excelente', '', 24, 'Cliente puntual');
+    row.push(6000000, 19000000, '0%', 'Excelente', '', 'Cliente puntual');
 
     const templateData = [headers, row];
 
