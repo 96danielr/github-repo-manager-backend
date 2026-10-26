@@ -14,6 +14,10 @@ export const askAI = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Pregunta faltante' });
     }
 
+    if (!aiChatService.isConfigured) {
+      return res.status(503).json({ success: false, message: 'El asistente de IA no está configurado en este ambiente.' });
+    }
+
     // Incrementar uso
     await limitService.incrementUsage({
       userId: userId || _id,

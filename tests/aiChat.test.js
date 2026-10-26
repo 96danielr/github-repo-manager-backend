@@ -20,6 +20,8 @@ describe('Integration Test - AI Chat API', () => {
 
   // SETUP: Create a test user, tenant and company to get an auth token
   beforeAll(async () => {
+    // The service is mocked below; it only needs to look configured.
+    process.env.GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'test-key';
     const res = await request(app)
       .post('/api/auth/register')
       .send({
@@ -72,6 +74,25 @@ describe('Integration Test - AI Chat API', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.body.message).toMatch(/Pregunta faltante/i);
+  });
+
+  it('should answer 503 without calling the model when GEMINI_API_KEY is not set', async () => {
+    const savedKey = process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    const spy = jest.spyOn(aiChatService, 'askStream');
+    try {
+      const res = await request(app)
+        .post('/api/ai/ask')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ companyId, question: '¿Cuales son mis ventas?', history: [] });
+
+      expect(res.statusCode).toBe(503);
+      expect(res.body.message).toMatch(/no está configurado/i);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      process.env.GEMINI_API_KEY = savedKey;
+    }
   });
 
   it('should stream AI response when asking a valid question', async () => {

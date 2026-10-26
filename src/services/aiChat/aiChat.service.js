@@ -7,18 +7,25 @@ import { validateQuery, convertObjectIds } from './queryValidator.js';
 import AppError from '../../utils/AppError.js';
 
 export class AIChatService {
-  constructor() {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      console.warn("GEMINI_API_KEY no configurada. El servicio de AI no funcionará.");
-    }
+  /** True when GEMINI_API_KEY is set; without it the API still starts and the assistant answers 503. */
+  get isConfigured() {
+    return Boolean(process.env.GEMINI_API_KEY);
+  }
 
-    this.model = new ChatGoogleGenerativeAI({
-      apiKey: apiKey,
-      model: "gemini-3.1-flash-lite-preview",
-      maxOutputTokens: 2048,
-      temperature: 0, // Determinístico para mayor seguridad en queries
-    });
+  // The Gemini client is created on first use, because creating it without a key throws at import time.
+  get model() {
+    if (!this._model) {
+      if (!this.isConfigured) {
+        throw new AppError('El asistente de IA no está configurado en este ambiente.', 503);
+      }
+      this._model = new ChatGoogleGenerativeAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        model: "gemini-3.1-flash-lite-preview",
+        maxOutputTokens: 2048,
+        temperature: 0, // Determinístico para mayor seguridad en queries
+      });
+    }
+    return this._model;
   }
 
   /**
