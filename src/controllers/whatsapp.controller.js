@@ -4,6 +4,7 @@ import Message from '../models/Message.js';
 import Client from '../models/Client.js';
 import Company from '../models/Company.js';
 import AppError from '../utils/AppError.js';
+import { GRAPH_API_URL } from '../config/meta.js';
 
 /**
  * Meta Webhook Verification
@@ -366,7 +367,7 @@ export const connect = async (req, res, next) => {
       accessToken = code;
     } else {
       const tokenRes = await fetch(
-        `https://graph.facebook.com/v18.0/oauth/access_token?${new URLSearchParams({
+        `${GRAPH_API_URL}/oauth/access_token?${new URLSearchParams({
           client_id: appId,
           client_secret: appSecret,
           code,
@@ -387,7 +388,7 @@ export const connect = async (req, res, next) => {
     // Simplified Fallback logic
     if (!wabaId || !phoneNumberId || wabaId === phoneNumberId) {
       try {
-        const debugRes = await fetch(`https://graph.facebook.com/v18.0/debug_token?input_token=${accessToken}&access_token=${appId}|${appSecret}`);
+        const debugRes = await fetch(`${GRAPH_API_URL}/debug_token?input_token=${accessToken}&access_token=${appId}|${appSecret}`);
         const debugData = await debugRes.json();
         if (debugData.data?.granular_scopes) {
           for (const scope of debugData.data.granular_scopes) {
@@ -404,12 +405,12 @@ export const connect = async (req, res, next) => {
 
     if (!wabaId || !phoneNumberId || wabaId === phoneNumberId) {
        try {
-         const wabaRes = await fetch(`https://graph.facebook.com/v18.0/me?fields=whatsapp_business_accounts`, { headers: { Authorization: `Bearer ${accessToken}` } });
+         const wabaRes = await fetch(`${GRAPH_API_URL}/me?fields=whatsapp_business_accounts`, { headers: { Authorization: `Bearer ${accessToken}` } });
          const wabaData = await wabaRes.json();
          const accounts = wabaData.whatsapp_business_accounts?.data || wabaData.data;
          if (accounts && accounts.length > 0) {
            if (!wabaId || wabaId === phoneNumberId) wabaId = accounts[0].id;
-           const phoneRes = await fetch(`https://graph.facebook.com/v18.0/${wabaId}/phone_numbers?fields=display_phone_number,verified_name,id`, { headers: { Authorization: `Bearer ${accessToken}` } });
+           const phoneRes = await fetch(`${GRAPH_API_URL}/${wabaId}/phone_numbers?fields=display_phone_number,verified_name,id`, { headers: { Authorization: `Bearer ${accessToken}` } });
            const phoneData = await phoneRes.json();
            if (phoneData.data && phoneData.data.length > 0) {
              phoneNumberId = phoneData.data[0].id;
@@ -420,7 +421,7 @@ export const connect = async (req, res, next) => {
 
     if (phoneNumberId) {
       try {
-        const phoneRes = await fetch(`https://graph.facebook.com/v18.0/${phoneNumberId}?fields=display_phone_number,verified_name`, { headers: { Authorization: `Bearer ${accessToken}` } });
+        const phoneRes = await fetch(`${GRAPH_API_URL}/${phoneNumberId}?fields=display_phone_number,verified_name`, { headers: { Authorization: `Bearer ${accessToken}` } });
         const phoneData = await phoneRes.json();
         if (phoneData.display_phone_number) {
           displayPhoneNumber = phoneData.display_phone_number;
@@ -435,7 +436,7 @@ export const connect = async (req, res, next) => {
 
     // Subscribe to webhooks
     try {
-      await fetch(`https://graph.facebook.com/v18.0/${wabaId}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      await fetch(`${GRAPH_API_URL}/${wabaId}/subscribed_apps`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
     } catch(err) {}
 
     company.integrations = {

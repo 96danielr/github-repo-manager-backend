@@ -1,17 +1,13 @@
-
+import { GRAPH_API_URL } from '../config/meta.js';
 
 class WhatsAppService {
-  constructor() {
-    this.apiVersion = 'v18.0';
-  }
-
   getGraphUrl(config) {
     if (!config?.accessToken || !config?.phoneNumberId || !config?.wabaId) {
       throw new Error('WhatsApp no está configurado para esta empresa');
     }
     return {
-      baseUrl: `https://graph.facebook.com/${this.apiVersion}/${config.phoneNumberId}`,
-      wabaUrl: `https://graph.facebook.com/${this.apiVersion}/${config.wabaId}`,
+      baseUrl: `${GRAPH_API_URL}/${config.phoneNumberId}`,
+      wabaUrl: `${GRAPH_API_URL}/${config.wabaId}`,
       accessToken: config.accessToken,
     };
   }
