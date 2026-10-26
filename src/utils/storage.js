@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import dotenv from 'dotenv';
 
@@ -12,8 +13,17 @@ const r2Client = new S3Client({
   },
 });
 
+/**
+ * Object key for an upload: a random name that keeps only a short, safe extension.
+ * Files are served publicly by URL, so the key must not be guessable or carry the original file name.
+ */
+export const buildObjectKey = (folder, originalName = '') => {
+  const ext = (originalName.match(/\.([A-Za-z0-9]{1,8})$/)?.[1] || '').toLowerCase();
+  return `${folder}/${randomUUID()}${ext ? `.${ext}` : ''}`;
+};
+
 export const uploadToR2 = async (file, folder = 'lots') => {
-  const fileName = `${folder}/${Date.now()}-${file.originalname}`;
+  const fileName = buildObjectKey(folder, file.originalname);
   
   const uploadParams = {
     Bucket: process.env.R2_BUCKET_NAME,
