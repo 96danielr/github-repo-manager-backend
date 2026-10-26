@@ -150,6 +150,11 @@ export const handleWebhook = async (req, res) => {
  */
 export const sendMessage = async (req, res, next) => {
   try {
+    // Same switch as the automatic notifications: environments with notifications off never send.
+    if (process.env.ENABLE_NOTIFICATIONS !== 'true') {
+      return next(new AppError('Los envíos de WhatsApp están apagados en este ambiente.', 503));
+    }
+
     const { clientId, phone: directPhone, text, templateName, components } = req.body;
     const { tenantId, _id: senderId } = req.user;
 
