@@ -1,0 +1,11 @@
+# Keep the Docker build context small and free of local secrets
+node_modules
+.git
+.env
+.env.*
+!.env.example
+tests
+scratch
+coverage
+*.log
+.DS_Store
