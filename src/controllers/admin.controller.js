@@ -3,7 +3,7 @@ import User from '../models/User.js';
 import UserCompany from '../models/UserCompany.js';
 import { uploadToR2, deleteFromR2 } from '../utils/storage.js';
 import AuditLog from '../models/AuditLog.js';
-import { sendSMS, sendEmail } from '../utils/notifications.js';
+import { sendEmail } from '../utils/notifications.js';
 import AppError from '../utils/AppError.js';
 
 /**

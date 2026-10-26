@@ -1,7 +1,7 @@
 import Quota from '../models/Quota.js';
 import Company from '../models/Company.js';
 import Contract from '../models/Contract.js';
-import { sendSMS, sendEmail, sendWhatsApp } from './notifications.js';
+import { sendEmail, sendWhatsApp } from './notifications.js';
 
 /**
  * Send a single consolidated notification when multiple quotas are paid/processed in cascade
@@ -45,11 +45,10 @@ export const sendConsolidatedPaymentNotifications = async (req, paidQuotaIds, co
       quotaDetailsList.push(`Cuota #${q.number} (${q.type === 'inicial' ? 'inicial' : 'ordinaria'}): $${(q.amountPaid || q.value).toLocaleString()}`);
     }
 
-    // Send SMS & WhatsApp
+    // Send WhatsApp
     if (client.phone) {
       const quotaNumbers = quotas.map(q => `#${q.number}`).join(', ');
       const message = `Cordial saludo ${client.name}, se ha registrado un pago consolidado por $${totalAmount.toLocaleString()} que cubre las cuotas: ${quotaNumbers} de ${companyName}. Estado de Cuenta: ${statementUrl}`;
-      await sendSMS(client.phone, message);
       await sendWhatsApp(client.phone, message);
     }
 

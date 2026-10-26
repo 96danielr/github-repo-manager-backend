@@ -1,10 +1,10 @@
 /**
- * Notifications Service Implementation (SMS & Email)
+ * Notifications Service Implementation (WhatsApp & Email)
  * This module follows a provider pattern to allow easy switching between messaging providers.
+ * SMS and Twilio were removed: WhatsApp goes through Meta and email through Resend.
  */
 
 import { Resend } from 'resend';
-import twilio from 'twilio';
 
 const SENDME_API_BASE = 'https://app.sendme123.com/api';
 const SENDME_API_KEY = process.env.SENDME_API_KEY;
@@ -22,128 +22,7 @@ const getResend = () => {
   return _resend;
 };
 
-let _twilioClient = null;
-const getTwilioClient = () => {
-  if (!_twilioClient) {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken = process.env.TWILIO_AUTH_TOKEN;
-    if (!accountSid || !authToken) {
-      throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are not configured in environment variables');
-    }
-    _twilioClient = twilio(accountSid, authToken);
-  }
-  return _twilioClient;
-};
-
-// --- SMS Providers ---
-
-const sendMeSMSProvider = {
-  send: async (to, message) => {
-    try {
-      if (!SENDME_API_KEY) {
-        throw new Error('SENDME_API_KEY is not configured');
-      }
-
-      // Cleaning phone number for SendMe (expects 10 digits for CO usually, but let's send it as provided or cleaned)
-      const cleanTo = to.replace(/\D/g, '').slice(-10); // Simple hack for CO mobile numbers
-
-      const response = await fetch(`${SENDME_API_BASE}/messages/sms/contacts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api-key': SENDME_API_KEY,
-        },
-        body: JSON.stringify({
-          message,
-          contacts: [cleanTo],
-          country: 'CO',
-        }),
-      });
-
-      const data = await response.json();
-      console.log(`[SMS SENDME SUCCESS] To: ${cleanTo}, Message: ${message.substring(0, 30)}... Response:`, data);
-      
-      if (!response.ok) throw new Error(data.message || 'Error from SendMe API');
-
-      return { success: true, provider: 'sendme', data };
-    } catch (error) {
-      console.error('[SMS SENDME ERROR]', error);
-      return { success: false, error: error.message };
-    }
-  },
-};
-
-const formatTwilioPhone = (phone) => {
-  let cleaned = phone.toString().replace(/\D/g, '');
-  if (cleaned.length === 10 && cleaned.startsWith('3')) {
-    cleaned = '57' + cleaned;
-  }
-  return `+${cleaned}`;
-};
-
-const twilioSMSProvider = {
-  send: async (to, message) => {
-    try {
-      const from = process.env.TWILIO_SMS_FROM;
-      if (!from) {
-        throw new Error('TWILIO_SMS_FROM is not configured');
-      }
-
-      const cleanTo = formatTwilioPhone(to);
-      const client = getTwilioClient();
-
-      const response = await client.messages.create({
-        to: cleanTo,
-        from: from,
-        body: message,
-      });
-
-      console.log(`[SMS TWILIO SUCCESS] To: ${cleanTo}, Message: ${message.substring(0, 30)}... ID: ${response.sid}`);
-      return { success: true, provider: 'twilio', data: response };
-    } catch (error) {
-      console.error('[SMS TWILIO ERROR]', error);
-      return { success: false, error: error.message };
-    }
-  },
-};
-
-const dummySMSProvider = {
-  send: async (to, message) => {
-    console.log(`[SMS DUMMY PROVIDER] Sending to ${to}: ${message}`);
-    return { success: true, provider: 'dummy', messageId: Date.now().toString() };
-  },
-};
-
 // --- WhatsApp Providers ---
-
-const twilioWhatsAppProvider = {
-  send: async (to, message) => {
-    try {
-      const from = process.env.TWILIO_WHATSAPP_FROM || `whatsapp:${process.env.TWILIO_SMS_FROM}`;
-      if (!from) {
-        throw new Error('TWILIO_WHATSAPP_FROM is not configured');
-      }
-
-      const cleanTo = formatTwilioPhone(to);
-      const whatsappTo = `whatsapp:${cleanTo}`;
-      const whatsappFrom = from.startsWith('whatsapp:') ? from : `whatsapp:${from}`;
-
-      const client = getTwilioClient();
-
-      const response = await client.messages.create({
-        to: whatsappTo,
-        from: whatsappFrom,
-        body: message,
-      });
-
-      console.log(`[WHATSAPP TWILIO SUCCESS] To: ${whatsappTo}, Message: ${message.substring(0, 30)}... ID: ${response.sid}`);
-      return { success: true, provider: 'twilio', data: response };
-    } catch (error) {
-      console.error('[WHATSAPP TWILIO ERROR]', error);
-      return { success: false, error: error.message };
-    }
-  },
-};
 
 const metaWhatsAppProvider = {
   send: async (to, message) => {
@@ -249,16 +128,9 @@ const dummyEmailProvider = {
 
 // --- Service Configuration ---
 
-const smsProviders = {
-  dummy: dummySMSProvider,
-  sendme: sendMeSMSProvider,
-  twilio: twilioSMSProvider,
-};
-
 const whatsappProviders = {
   dummy: dummyWhatsAppProvider,
   meta: metaWhatsAppProvider,
-  twilio: twilioWhatsAppProvider,
 };
 
 const emailProviders = {
@@ -267,22 +139,10 @@ const emailProviders = {
   resend: resendEmailProvider,
 };
 
-const activeSMSProvider = process.env.SMS_PROVIDER || 'twilio';
-const activeWhatsAppProvider = process.env.WHATSAPP_PROVIDER || 'twilio';
+// Unknown or missing names fall back to dummy, so nothing is sent until Meta is configured.
+const activeWhatsAppProvider = process.env.WHATSAPP_PROVIDER || 'dummy';
 const activeEmailProvider = process.env.EMAIL_PROVIDER || 'resend';
 const isNotificationsEnabled = process.env.ENABLE_NOTIFICATIONS === 'true';
-
-/**
- * Send an SMS message
- */
-export const sendSMS = async (to, message) => {
-  if (!isNotificationsEnabled) {
-    console.log(`[SMS DISABLED] Would have sent to ${to}: ${message}`);
-    return { success: true, provider: 'disabled', messageId: 'disabled' };
-  }
-  const provider = smsProviders[activeSMSProvider] || dummySMSProvider;
-  return await provider.send(to, message);
-};
 
 /**
  * Send a WhatsApp message

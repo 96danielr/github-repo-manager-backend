@@ -4,7 +4,7 @@ import Company from '../models/Company.js';
 import Contract from '../models/Contract.js';
 import Quota from '../models/Quota.js';
 import crypto from 'crypto';
-import { sendEmail, sendSMS, sendWhatsApp } from './notifications.js';
+import { sendEmail, sendWhatsApp } from './notifications.js';
 
 export const sendOTPCode = async (tenantId, companyId, clientId, type, destination, companyName) => {
   // Generate 6-digit code
@@ -40,7 +40,6 @@ export const sendOTPCode = async (tenantId, companyId, clientId, type, destinati
     `;
     await sendEmail(destination, subject, emailHtml);
   } else if (type === 'phone') {
-    await sendSMS(destination, message);
     await sendWhatsApp(destination, message);
   }
 
