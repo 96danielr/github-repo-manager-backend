@@ -4,7 +4,7 @@ import Message from '../models/Message.js';
 import Client from '../models/Client.js';
 import Company from '../models/Company.js';
 import AppError from '../utils/AppError.js';
-import { GRAPH_API_URL } from '../config/meta.js';
+import { GRAPH_API_URL, GRAPH_API_VERSION } from '../config/meta.js';
 import crypto from 'crypto';
 
 /**
@@ -280,7 +280,15 @@ export const getConversations = async (req, res, next) => {
 
 export const getConfig = async (req, res, next) => {
   try {
-    res.status(200).json({ success: true, data: { appId: process.env.META_APP_ID } });
+    // Public values for the Embedded Signup popup; the app secret never leaves the server.
+    res.status(200).json({
+      success: true,
+      data: {
+        appId: process.env.META_APP_ID,
+        configId: process.env.META_CONFIG_ID,
+        graphApiVersion: GRAPH_API_VERSION,
+      },
+    });
   } catch (error) {
     next(error);
   }

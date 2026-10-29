@@ -40,6 +40,24 @@ describe('Integration Test - WhatsApp manual send', () => {
     }
   });
 
+  it('gives the Embedded Signup values without the app secret', async () => {
+    const saved = { id: process.env.META_APP_ID, cfg: process.env.META_CONFIG_ID, secret: process.env.META_APP_SECRET };
+    process.env.META_APP_ID = '111';
+    process.env.META_CONFIG_ID = '222';
+    process.env.META_APP_SECRET = 'app-secret-for-tests';
+    try {
+      const res = await request(app).get('/api/whatsapp/config').set('Authorization', `Bearer ${token}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data).toMatchObject({ appId: '111', configId: '222' });
+      expect(res.body.data.graphApiVersion).toMatch(/^v\d+\.\d+$/);
+      expect(JSON.stringify(res.body)).not.toContain('app-secret-for-tests');
+    } finally {
+      process.env.META_APP_ID = saved.id;
+      process.env.META_CONFIG_ID = saved.cfg;
+      process.env.META_APP_SECRET = saved.secret;
+    }
+  });
+
   it('does not send when notifications are off', async () => {
     const saved = process.env.ENABLE_NOTIFICATIONS;
     process.env.ENABLE_NOTIFICATIONS = 'false';
