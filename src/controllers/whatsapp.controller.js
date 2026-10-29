@@ -5,144 +5,145 @@ import Client from '../models/Client.js';
 import Company from '../models/Company.js';
 import AppError from '../utils/AppError.js';
 import { GRAPH_API_URL } from '../config/meta.js';
+import crypto from 'crypto';
 
 /**
  * Meta Webhook Verification
+ * Answers the challenge as plain text when the verify token matches. Never logs the tokens.
  */
 export const verifyWebhook = (req, res) => {
-  console.log('--- WHATSAPP WEBHOOK VERIFICATION ATTEMPT ---');
-  console.log('Query params:', req.query);
-  
-  const mode = req.query['hub.mode'] || req.query['hub_mode'];
-  const token = req.query['hub.verify_token'] || req.query['hub_verify_token'];
-  const challenge = req.query['hub.challenge'] || req.query['hub_challenge'];
+  // Read the raw query string: express-mongo-sanitize drops keys with dots, like hub.mode, from req.query.
+  const params = new URLSearchParams(req.originalUrl.split('?')[1] || '');
+  const mode = params.get('hub.mode') || params.get('hub_mode');
+  const token = params.get('hub.verify_token') || params.get('hub_verify_token');
+  const challenge = params.get('hub.challenge') || params.get('hub_challenge');
 
-  if (mode && token) {
-    if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
-      console.log('WEBHOOK_VERIFIED SUCCESSFULLY');
-      return res.status(200).send(challenge);
-    } else {
-      console.error('WEBHOOK_VERIFICATION_FAILED: Token mismatch');
-      console.log('Expected:', process.env.WHATSAPP_VERIFY_TOKEN);
-      console.log('Received:', token);
-      return res.sendStatus(403);
-    }
+  if (!mode || !token) {
+    return res.status(400).send('Verification failed');
   }
-  
-  console.log('WEBHOOK_VERIFICATION_FAILED: Missing mode or token');
-  res.status(400).send('Verification failed');
+  if (mode === 'subscribe' && isSameSecret(token, process.env.WHATSAPP_VERIFY_TOKEN)) {
+    console.log('[WHATSAPP WEBHOOK] verified');
+    return res.status(200).type('text/plain').send(String(challenge ?? ''));
+  }
+  console.warn('[WHATSAPP WEBHOOK] verification failed');
+  return res.sendStatus(403);
+};
+
+/** Constant-time comparison; false when either value is missing. */
+const isSameSecret = (received, expected) => {
+  if (!received || !expected) return false;
+  const a = Buffer.from(String(received));
+  const b = Buffer.from(String(expected));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 
 /**
- * Receive Webhook Notifications
+ * True when X-Hub-Signature-256 is the HMAC-SHA256 of the raw body with the app secret.
+ * Exported for tests.
+ */
+export const hasValidSignature = (req) => {
+  const secret = process.env.META_APP_SECRET;
+  const header = req.get('x-hub-signature-256') || '';
+  if (!secret || !req.rawBody || !header.startsWith('sha256=')) return false;
+  const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(req.rawBody).digest('hex');
+  return isSameSecret(header, expected);
+};
+
+/**
+ * Meta Webhook events (messages and statuses).
+ * Rejects unsigned calls, answers 200 right away and processes the event afterwards.
  */
 export const handleWebhook = async (req, res) => {
-  try {
-    const { body } = req;
+  if (!hasValidSignature(req)) {
+    console.warn('[WHATSAPP WEBHOOK] rejected: missing or invalid signature');
+    return res.sendStatus(401);
+  }
+  if (!req.body?.object) {
+    return res.sendStatus(404);
+  }
 
-    // Log the entire payload for debugging
-    console.log('--- WHATSAPP WEBHOOK RECEIVED ---');
-    console.log(JSON.stringify(body, null, 2));
+  res.status(200).send('EVENT_RECEIVED');
+  processWebhookEvent(req.body).catch((error) => {
+    console.error('[WHATSAPP WEBHOOK] processing error:', error.message);
+  });
+};
 
-    if (body.object) {
-      if (
-        body.entry &&
-        body.entry[0].changes &&
-        body.entry[0].changes[0].value.messages &&
-        body.entry[0].changes[0].value.messages[0]
-      ) {
-        const messageData = body.entry[0].changes[0].value.messages[0];
-        const waId = messageData.from; // Phone number with country code
-        const metadata = body.entry[0].changes[0].value.metadata;
-        const phoneId = metadata.phone_number_id;
+const processWebhookEvent = async (body) => {
+  const value = body.entry?.[0]?.changes?.[0]?.value;
+  if (!value) return;
 
-        // Find company by phone ID
-        const company = await Company.findOne({ 'integrations.whatsappPhoneId': phoneId });
-        if (!company) {
-          console.warn('No company found for phone ID:', phoneId);
-          return res.status(200).send('EVENT_RECEIVED'); // ignore
-        }
-        const tenantId = company.tenantId;
+  const messageData = value.messages?.[0];
+  if (messageData) {
+    const waId = messageData.from; // Phone number with country code, e.g. "573001234567"
+    const phoneId = value.metadata?.phone_number_id;
 
-        console.log(`Incoming message from: ${waId}`);
-
-        // Handle different message types
-        let text = '';
-        if (messageData.type === 'text') {
-          text = messageData.text.body;
-        } else if (messageData.type === 'button') {
-          text = messageData.button.text;
-        } else if (messageData.type === 'interactive') {
-          const type = messageData.interactive.type;
-          text = type === 'button_reply' 
-            ? messageData.interactive.button_reply.title 
-            : messageData.interactive.list_reply.title;
-        } else {
-          text = `[Mensaje tipo ${messageData.type}]`;
-        }
-
-        // Find client - cleaning waId to match common storage formats
-        // Meta sends e.g. "573001234567"
-        // We look for a client whose phone contains the last 10 digits or matches exactly
-        const last10Digits = waId.slice(-10);
-        
-        const client = await Client.findOne({ 
-          tenantId,
-          phone: { $regex: last10Digits }
-        });
-
-        if (client) {
-          console.log(`Matched client: ${client.name} (ID: ${client._id})`);
-          
-          let conv = await Conversation.findOne({ clientId: client._id });
-          if (!conv) {
-            conv = await Conversation.create({
-              tenantId: client.tenantId,
-              clientId: client._id,
-              waId: waId,
-              lastMessage: text
-            });
-            console.log('Created new conversation');
-          } else {
-            conv.lastMessage = text;
-            conv.unreadCount += 1;
-            conv.updatedAt = new Date();
-            await conv.save();
-            console.log('Updated existing conversation');
-          }
-
-          await Message.create({
-            conversationId: conv._id,
-            tenantId: client.tenantId,
-            waId: messageData.id,
-            direction: 'inbound',
-            type: messageData.type === 'text' ? 'text' : 'button',
-            body: text,
-            status: 'received'
-          });
-          console.log('Message stored successfully');
-        } else {
-          console.warn(`No client found for phone: ${waId} (searched for ${last10Digits})`);
-          // OPTIONAL: In a real app, you might want to create a "Prospect" or handle anonymous messages
-        }
-      } else if (body.entry?.[0]?.changes?.[0]?.value?.statuses) {
-        // Handle status updates (sent, delivered, read)
-        const status = body.entry[0].changes[0].value.statuses[0];
-        console.log(`Status update for ${status.id}: ${status.status}`);
-        
-        await Message.findOneAndUpdate(
-          { waId: status.id },
-          { status: status.status }
-        );
-      }
-      
-      res.status(200).send('EVENT_RECEIVED');
-    } else {
-      res.sendStatus(404);
+    // Find company by phone ID
+    const company = await Company.findOne({ 'integrations.whatsappPhoneId': phoneId });
+    if (!company) {
+      console.warn('[WHATSAPP WEBHOOK] message for an unknown phone number ID');
+      return;
     }
-  } catch (error) {
-    console.error('Webhook processing error:', error);
-    res.status(500).send('Internal Server Error');
+    const tenantId = company.tenantId;
+
+    // Handle different message types
+    let text = '';
+    if (messageData.type === 'text') {
+      text = messageData.text.body;
+    } else if (messageData.type === 'button') {
+      text = messageData.button.text;
+    } else if (messageData.type === 'interactive') {
+      const type = messageData.interactive.type;
+      text = type === 'button_reply'
+        ? messageData.interactive.button_reply.title
+        : messageData.interactive.list_reply.title;
+    } else {
+      text = `[Mensaje tipo ${messageData.type}]`;
+    }
+
+    // Match the client by the last 10 digits of the phone number
+    const last10Digits = waId.slice(-10);
+    const client = await Client.findOne({
+      tenantId,
+      phone: { $regex: last10Digits },
+    });
+    if (!client) {
+      console.warn('[WHATSAPP WEBHOOK] message from a number with no client');
+      return;
+    }
+
+    let conv = await Conversation.findOne({ clientId: client._id });
+    if (!conv) {
+      conv = await Conversation.create({
+        tenantId: client.tenantId,
+        clientId: client._id,
+        waId: waId,
+        lastMessage: text,
+      });
+    } else {
+      conv.lastMessage = text;
+      conv.unreadCount += 1;
+      conv.updatedAt = new Date();
+      await conv.save();
+    }
+
+    await Message.create({
+      conversationId: conv._id,
+      tenantId: client.tenantId,
+      waId: messageData.id,
+      direction: 'inbound',
+      type: messageData.type === 'text' ? 'text' : 'button',
+      body: text,
+      status: 'received',
+    });
+    console.log(`[WHATSAPP WEBHOOK] inbound ${messageData.type} message stored`);
+    return;
+  }
+
+  // Status updates (sent, delivered, read)
+  const status = value.statuses?.[0];
+  if (status) {
+    await Message.findOneAndUpdate({ waId: status.id }, { status: status.status });
+    console.log(`[WHATSAPP WEBHOOK] status ${status.status}`);
   }
 };
 

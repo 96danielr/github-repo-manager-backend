@@ -128,7 +128,13 @@ const authLimiter = rateLimit({
 });
 
 // Body parsing
-app.use(express.json({ limit: '5mb' }));
+// Keep the raw bytes of Meta webhook calls: their signature is computed over the exact body.
+app.use(express.json({
+  limit: '5mb',
+  verify: (req, res, buf) => {
+    if (req.originalUrl.startsWith('/api/whatsapp/webhook')) req.rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 app.use(mongoSanitize());
 
