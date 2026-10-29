@@ -159,7 +159,7 @@ export const sendMessage = async (req, res, next) => {
       return next(new AppError('Los envíos de WhatsApp están apagados en este ambiente.', 503));
     }
 
-    const { clientId, phone: directPhone, text, templateName, components } = req.body;
+    const { clientId, phone: directPhone, text, templateName, components, language } = req.body;
     const { tenantId, _id: senderId } = req.user;
 
     let client = null;
@@ -192,7 +192,8 @@ export const sendMessage = async (req, res, next) => {
 
     let result;
     if (templateName) {
-      result = await whatsappService.sendTemplateMessage(waConfig, phone, templateName, 'es', components);
+      // Templates exist per language; Spanish unless the caller names another one (e.g. hello_world is en_US).
+      result = await whatsappService.sendTemplateMessage(waConfig, phone, templateName, language || 'es', components);
     } else {
       result = await whatsappService.sendTextMessage(waConfig, phone, text);
     }

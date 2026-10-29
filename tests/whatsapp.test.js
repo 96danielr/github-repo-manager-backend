@@ -78,4 +78,30 @@ describe('Integration Test - WhatsApp manual send', () => {
       process.env.ENABLE_NOTIFICATIONS = saved;
     }
   });
+
+  it('sends a template in the requested language, Spanish by default', async () => {
+    const saved = process.env.ENABLE_NOTIFICATIONS;
+    process.env.ENABLE_NOTIFICATIONS = 'true';
+    const spy = jest.spyOn(whatsappService, 'sendTemplateMessage')
+      .mockResolvedValueOnce({ messages: [{ id: `wamid.en.${Date.now()}` }] })
+      .mockResolvedValueOnce({ messages: [{ id: `wamid.es.${Date.now()}` }] });
+    try {
+      const en = await request(app)
+        .post('/api/whatsapp/send')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ companyId, phone: '3001234567', templateName: 'hello_world', language: 'en_US' });
+      const es = await request(app)
+        .post('/api/whatsapp/send')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ companyId, phone: '3001234567', templateName: 'recordatorio' });
+
+      expect(en.statusCode).toBe(200);
+      expect(es.statusCode).toBe(200);
+      expect(spy.mock.calls[0][3]).toBe('en_US');
+      expect(spy.mock.calls[1][3]).toBe('es');
+    } finally {
+      spy.mockRestore();
+      process.env.ENABLE_NOTIFICATIONS = saved;
+    }
+  });
 });
