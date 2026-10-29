@@ -25,7 +25,9 @@ export const verifyWebhook = (req, res) => {
     console.log('[WHATSAPP WEBHOOK] verified');
     return res.status(200).type('text/plain').send(String(challenge ?? ''));
   }
-  console.warn('[WHATSAPP WEBHOOK] verification failed');
+  // Lengths only, never the values: tells a missing or mistyped variable apart from a wrong token.
+  const expected = process.env.WHATSAPP_VERIFY_TOKEN;
+  console.warn(`[WHATSAPP WEBHOOK] verification failed: WHATSAPP_VERIFY_TOKEN ${expected ? `set (${expected.length} chars)` : 'NOT set'}, received ${String(token).length} chars, mode ${mode}`);
   return res.sendStatus(403);
 };
 
